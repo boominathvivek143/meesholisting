@@ -107,6 +107,12 @@
   .chip-btn{border:1px solid var(--pink);background:var(--pink-light);color:var(--pink-dark);border-radius:999px;padding:5px 12px;font-size:12.5px;cursor:pointer;}
   .chip-btn:hover{background:var(--pink);color:#fff;}
   .chip-skip{border-style:dashed;background:transparent;color:var(--muted);}
+  #quickFillHints{font-size:13px;line-height:1.9;color:var(--text);}
+  .field-hint-item{white-space:nowrap;}
+  .dropdown-icon{position:relative;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;margin-left:2px;border-radius:50%;background:var(--pink-light);color:var(--pink-dark);font-size:10px;cursor:help;vertical-align:middle;}
+  .dropdown-tooltip{display:none;position:absolute;left:0;top:130%;z-index:80;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.5;width:240px;max-height:180px;overflow-y:auto;box-shadow:0 6px 18px rgba(0,0,0,.18);color:var(--text);white-space:normal;text-align:left;}
+  .dropdown-icon:hover .dropdown-tooltip, .dropdown-icon:focus .dropdown-tooltip{display:block;}
+  .field-hint-optional{color:var(--muted);font-size:11.5px;}
 </style>
 </head>
 <body>
@@ -119,6 +125,24 @@
     <div class="tab active" data-tab="form">➕ Add / Edit Product</div>
     <div class="tab" data-tab="list">📋 Catalog List <span id="tabCount"></span></div>
     <div class="tab" data-tab="settings">⚙️ Settings</div>
+  </div>
+
+  <div class="card" style="padding:10px 16px;margin-bottom:14px;">
+    <div class="row-inline" style="justify-content:space-between;">
+      <span class="sub" style="margin:0;">Category: <strong id="categoryNameLabel" style="color:var(--pink-dark);">Keychains</strong></span>
+      <button type="button" class="btn btn-outline btn-sm" id="changeCategoryBtn">🔄 Change Category</button>
+    </div>
+    <div id="categoryPanel" style="display:none;margin-top:10px;border-top:1px solid var(--border);padding-top:10px;">
+      <div id="categoryList" style="margin-bottom:10px;"></div>
+      <div class="help" style="font-weight:600;margin-bottom:6px;">Upload a different Meesho category template to build that category's form instead:</div>
+      <div class="row-inline" style="gap:8px;flex-wrap:wrap;">
+        <input type="file" id="categoryFile" accept=".xlsx" style="display:none;">
+        <button type="button" class="btn btn-outline btn-sm" id="categoryFileBtn">📁 Choose template .xlsx</button>
+        <input type="text" id="categoryNameInput" placeholder="Category name (e.g. Sarees)" style="flex:1;min-width:160px;">
+        <button type="button" class="btn btn-primary btn-sm" id="categoryUploadBtn" disabled>Parse &amp; Use</button>
+      </div>
+      <div id="categoryStatus" style="margin-top:8px;"></div>
+    </div>
   </div>
 
   <!-- FORM PANEL -->
@@ -139,9 +163,8 @@
         <p class="sub" style="margin:0 0 12px;">Add a photo and/or describe the product below, then click Enhance — AI drafts the listing for you to review before anything is filled in. Needs a free Gemini API key (⚙️ Settings). <strong>No key?</strong> Skip straight to Guided Questions at the bottom instead — no AI required.</p>
         <div id="mainImageStep"></div>
         <div style="margin-top:12px;">
-          <textarea id="quickFillText" style="min-height:140px;" placeholder="Product name is — a metal oilfield-style keychain. Color is — brown. Material is — metal. Shape is — circle. Size is — free size. Weight is — 45 grams. Quantity available is — 1. Height is — 1cm. Length is — 5cm. Width is — 3cm. Price is — 249. Defective/return price is — 239. MRP is — 499. Description — generate description with AI.
-
-Got more than one color? Just say so: &quot;Comes in red, green and blue, all metal, 45 grams, price 249&quot; — Enhance will turn this into a Product with Variations listing automatically."></textarea>
+          <div id="quickFillHints" style="margin-bottom:8px;"></div>
+          <textarea id="quickFillText" style="min-height:140px;" placeholder="Type or dictate the product details mentioned above, in any order — then click Enhance."></textarea>
           <div class="row-inline" style="gap:8px;margin-top:8px;">
             <button type="button" class="btn btn-outline btn-sm" id="voiceBtn">🎤 Start Voice Input</button>
             <button type="button" class="btn btn-primary btn-sm" id="quickFillBtn">✨ Enhance</button>
@@ -250,20 +273,73 @@ Got more than one color? Just say so: &quot;Comes in red, green and blue, all me
 <div class="toast" id="toast"></div>
 
 <script>
-/* ============ Validation lists (pulled from the real template's Validation Sheet) ============ */
-const V_SIZE = ["Free Size"];
-const V_GST = ["18","5"];
-const V_HSN = ["392640","392690","39269099","441193","600624","630710","731589","732690","830890","910111","95030010"];
-const V_COUNTRY = ["Afghanistan","Albania","Algeria","Andorra","Angola","Antigua and Barbuda","Argentina","Armenia","Australia","Austria","Azerbaijan","Bahamas","Bahrain","Bangladesh","Barbados","Belarus","Belgium","Belize","Benin","Bhutan","Bolivia","Bosnia-Herzegovina","Botswana","Brazil","Brunei","Bulgaria","Burkina Faso","Burundi","Cabo Verde","Cambodia","Cameroon","Canada","Central African Rep","Chad","Chile","China","Colombia","Comoros","Congo","Costa Rica","Croatia","Cuba","Cyprus","Czechia","DRC Congo","Denmark","Djibouti","Dominica","Dominican Republic","Ecuador","Egypt","El Salvador","Equatorial Guinea","Eritrea","Estonia","Eswatini","Ethiopia","Fiji","Finland","France","Gabon","Gambia","Georgia","Germany","Ghana","Greece","Grenada","Guatemala","Guinea","Guinea Bissau","Guyana","Haiti","Holy See","Honduras","Hungary","Iceland","India","Indonesia","Iran","Iraq","Ireland","Israel","Italy","Jamaica","Japan","Jordan","Kazakhstan","Kenya","Kiribati","Kuwait","Kyrgyzstan","Laos","Latvia","Lebanon","Lesotho","Liberia","Libya","Liechtenstein","Lithuania","Luxembourg","Madagascar","Malawi","Malaysia","Maldives","Mali","Malta","Marshall Islands","Mauritania","Mauritius","Mexico","Micronesia","Moldova","Monaco","Mongolia","Montenegro","Morocco","Mozambique","Myanmar","Namibia","Nauru","Nepal","Netherlands","New Zealand","Nicaragua","Niger","Nigeria","North Korea","North Macedonia","Norway","Oman","Palau","Palestine State","Panama","Papua New Guinea","Paraguay","Peru","Philippines","Poland","Portugal","Qatar","Romania","Russia","Rwanda","Saint Kitts & Nevis","Saint Lucia","Samoa","San Marino","Sao Tome","Saudi Arabia","Senegal","Serbia","Seychelles","Sierra Leone","Singapore","Slovakia","Slovenia","Solomon Islands","Somalia","South Africa","South Korea","South Sudan","Spain","Sri Lanka","St Vincent","Sudan","Suriname","Sweden","Switzerland","Syria","Tajikistan","Tanzania","Thailand","Timor Leste","Togo","Tonga","Trinidad and Tobago","Tunisia","Turkey","Turkmenistan","Tuvalu","UAE","USA","Uganda","Ukraine","United Kingdom","Uruguay","Uzbekistan","Vanuatu","Venezuela","Vietnam","Yemen","Zambia","Zimbabwe"];
-const V_COLOR = ["Beige","Black","Blue","Brown","Coral","Cream","Gold","Green","Grey","Grey Melange","Khaki","Lavendar","Maroon","Metallic","Multicolor","Mustard","Navy Blue","Nude","Olive","Orange","Peach","Pink","Purple","Red","Rust","Silver","Teal","White","Yellow"];
-const V_GENERIC_NAME = ["Accessories","Bottom Wear","Garment","Keychains","Others","Sportswear","Topwear","Undergarment"];
-const V_MATERIAL = ["Canvas","Canvas & Leather","Fabric","Faux Leather/Leatherette","Leather","MDF","Metal","PU","Plastic","Polyester","Resin","Suede","Synthetic","Wooden"];
-const V_NET_QUANTITY = ["1","10","2","3","4","5","6","7","8","9"];
-const V_DIMENSION_UNIT = ["cm","ft","inch","m","mm"];
-const V_SHAPE = ["Butterfly","Circle","D Shape","Diamond","Heart","Hexagonal","Oblong","Oval","Pear","Pentagonal","Rectangular","Round","Square","Star","Triangular"];
-const V_TYPE = ["Animal","Anime Keychains","BT21 Keychain","BTS","Bike Keychains","Car Keychain","Cartoon","Challa Keychain","Couple Keychain","Customized Keychain","Drive Safe Keychain","Evil Eye Keychain","Gas Lighter Keychain","Henna/Mehandi Keychain","Love Keychain","Music","Photo Keychain","Pop It Keychain","Smiley Keychain","Sports"];
-const V_GROUP_ID = ["Group 01","Group 02","Group 03","Group 04","Group 05","Group 06","Group 07","Group 08","Group 09","Group 10","Group 11","Group 12","Group 13","Group 14","Group 15","Group 16","Group 17","Group 18","Group 19","Group 20","Group 21","Group 22","Group 23","Group 24","Group 25","Group 26","Group 27","Group 28","Group 29","Group 30"];
-const V_BRAND = ["19TH JULY JEWELS","A3DG Anmol3DGallery","ACHERON","ACLIX","ACUTAS","AHMADUN","AJS","ALLIED SALES INDIA","AMAR ENTERPRISE","ASAYATI","AYVION","Afra","Ajmera Fashion","Alexus","Aliza","Allen Solly","Allymen","Alto Prints","Alyne","Amani","Amante","Amara","Ananya Fashion","Angelo","Anora","Anouk","Antra","Artful Abode","Aruna Decor","Asami","Attire Icon","Avasa","Avits","Awalkonda","Awnara","BANISTROKES","BHAVYTA","BOLSAVIRA By DesireOn","BROWN Craft","Baliye","Barstow","Being Human","Bella N Bloom","Belliza Designer","Beltly","Benares Souvenirs","Bhavyam enterprise","Bigboss","BiggSmile","Blue Star","Bruno","Buko AEC","CADDLE & TOES","CADEAU","CHAINSPRO","CHANDRANI","COPEHI","CRAFTAM","CREEKNEST...ALL THAT YOU WANT","Cadila","Campus Sutra","Cantabil","Chandrika","Climberty","Clint","Cloverbyte","Comfort Lady","Cozycato","Craft Corner","Craft Shilp","Cuberkart","Curly Tales","DEBONAIR","DECOROID","DEETHYAS","DHANVI ENTERPRISE","DOKCHAN","DOPESTREET","DaMENSCH","Dais","DecorArtisans","Deethyas FASHION","Del Luna","Devlink","Diaz","Divaas","Diyansh","Dizon","DnH","Dollar Bigboss","Dollar Lehar","Dollar Missy","Dollar Ultra","Dollar Wintercare","Dongli","Dressberry","Drippy Prints","ECLET","ELEPHANTBOAT","EVAN ENTERPRISE","Elaasa","Elite Twist Creations","Envie","Erica","Evordlss","Exprintify","FAYA","FINAL DECOR","FINZ","FITNICK","Faizam Collection","Fassy","Fenicottero","Firstcry","Floret","Fly Birds","Flying Machine","FoMe","Force","Fort Collins","Fuaark","Fubar","GARIHC ENTERPRISE","GCT","GIFTING SOLUTION","GIFTY LUXE","GKM","GLAZU","GT Gala Time","GUSTAVE","Gajal","GharBuddy","Giftingazebo","Gifts Bucket","Govind Crafted","Gritstones","Guti","HANDMADE HUES","HANNEA","HASTHIP","HATAKE","HAVENHUED","HAVLORE","HEMRAJ CRAFTS","HINSHOZ","HKL PRESENT","Haripriya Jewells","Highlander","Highlark","Hikaru","Hipop","Hivata","House Of Commons","I. K. DESIGNS","IFKA Premium","ISHYAR","ISM366","Indocraft","Infinium","Ingrid","JELECTRICALS","JEMIFLY","JKS AVENUE","Javier","Jdp Novelty","Jivika","Jogger's Park","Jompers","Juniper","K Kaparrow","KALANIDHI GIFTS","KANGUVA","KENMA","KEYKEI","KEYLYN","KIDPLAST","KIPSOME","KORTELOZ","KRAFTEDKEY","Kairangi","Kaizen Enterprises","Kajal Kurti","Kanjilal","Karly","Keyzone","KiaNic","Komli","Krishna Enterprises","Kryst","Kuki","LUXXORA","Libas","MAHSON","MAKEPHOTOGIFTS","MAYCREATE","MBA GIFT WALA","MBS DECOR","MEHJ","MIRAN AGATE","MIZI CRAFT","MOOHFAT","MT FEATHERS","Magic Art Pune","Magneto","Magpy","Mahi","Manibam Impex","Manohari","Maroon Clothing","Marwars","Mast & Harbour","Mast Kalandar","Max","Mayur Kurtis","McCarthy","Meile","Merry poppin's","Metronaut","Milan","Miniature World 3D","Mitos","Mshine","Murk Shield","N WALLETS","NAAME","NADNAM","NAIVYA","NIVIZEN","NRG","NSV","NVP ENTERPRISES","Nama","New Print Creations","Nicsy","Niya","Nobero","Noori","NuttyWears","OFIFO","ONYC","OSMLY","Om Enterprise","Optifit","Oswaal","Oswal","Oviya","PAIJASH","PALAY","PATPAT","PEACOCKRIDE","PINK GALAXY","PK ENTERPRISES","PS PRODUCTS","Pantaloons","Paper Being","Parallel World Mart","Parasnath","Parco","Pearl Ocean","Pearlish","Penti","Peter England","Pingala","Planet Popcorn","PlusS","Printality","Prita","Priyaasi","Prolook","Proxima","R.N SAMRIDHI ENTERPRISES","RAMA RADIANCE","RATNA'S","REDHORNS","RIKHEEYA","RINGZANIO","RMVRINDA","RUDRAMYST","RainSound","Rajnandini","Rare","Ravens","Raymond","Real Craft","Regy","Relicon","Retrosound","Rowaro","Rtnahsij","Rupa Jon","Rupa Macroman M Series","Rupa Macrowoman W Series","S-Line","SAANVYA","SAHIB COLLECTION","SAINEX","SANNIDHI","SANNO WORLD","SGE 89","SHILPMART","SHOBHA ENTERPRISES","SNOWIE SOFT","SRB","STHIRA","Saanjh","Saara","Saarthikart","Sadiya","Sahana","Samyak","Sanch","Sangath","Sangpri","Sassafras","Sbb Novelty","Sehaj","Serplex","Seven Square","Seyon Enterprises","Shakti Enterprises","Shanaya Atelier","Shaping Fabric","Shaun","Shining Gift","Shiv Enterprise","Shivaay","Shivika Rohilla Chess Academy","Shoolin","Shyam Enterprises","Shyaway","Siya","Smara Creations","Snitch","Sonari","Sparsh Collection","Spelerio","Spigen","Sport Sun","Sprysh","Spykar","Stellers","Stitch N love handmade with heart","Sunnah Collection House","Supvox","Suti","Svatantra","TANSTITCH","TANTIQUE","TEXTURE","THAMPZ","THE BEAUTY QUEEN","THE MEN GIFT","TRK HUB","TRK IMPEX","TU4 Enterprise","Tashis Pet Junction","Taskin","TasmAI","Techiefox","Techpro","The Bear House","The Gift Berry","Thira","Thomas Scott","Threefold Spirit","Tintin","Tokyo Talkies","Toyaana","Tracy","Trendy Gifts","Trylo","Tweens","Twin Birds","Twin Brothers","Tyrell","UJJWAL ENTERPRISES","Ugees","Uniq","United Colors Of Benetton","Urbanpop","Utsa","Uturn","VANDU ENTERPRISE","VASUUS","VATTU","VDP ENTERPRISES","VMart","VOONTO","VOSTRO","VStar","Valaris","Valmo","Varanga","Vardhman","Veirdo","Verilux","Vibhuprises","Vibry","Virom","Vishal Mega Mart","Vivas","Vymo","WZZA","Wembley","Winget","Winkeli Traders","Wishland","World Gift Mart","WowNow","Wrogn","Wyatt","YAKSHU","Yana","Yashika","Yellow Chimes","You Forever","Yousta","ZEITEL","ZELOXA","ZIRAK","ZORBES","ZUBIHS","ZYZTA","Zeba","ZemGlam","Zibuyu","Zimli","Zivame","Zudio","discopumpkin","excitingLives","flashing click","keyclub","onitore","physicswallah","pw","woonk"];
+/* ============ Category schema — loaded dynamically from the server (any Meesho category
+   template can be uploaded and parsed into this same shape), falling back to an embedded copy
+   of the Keychains schema when there's no server to ask (opened as a plain file). ============ */
+let ACTIVE_CATEGORY = localStorage.getItem('meesho_active_category') || 'keychains';
+let ACTIVE_CATEGORY_NAME = 'Keychains';
+let GROUPS = [];
+let FIELDS = [];
+let PER_VARIANT_KEYS = [];
+let SIZE_VARIES = false;
+
+function fieldByKey(key){ return FIELDS.find(f=>f.key===key); }
+function fieldOptions(key){ const f = fieldByKey(key); return (f && (f.options || f.list)) || []; }
+
+// A handful of small, universal UX defaults the raw parsed schema doesn't carry — applied to
+// whichever category is loaded, not just Keychains.
+function applySchema(schema){
+  ACTIVE_CATEGORY_NAME = schema.name || ACTIVE_CATEGORY_NAME;
+  GROUPS = schema.groups;
+  FIELDS = schema.fields.map(f=>Object.assign({}, f));
+  FIELDS.forEach(f=>{
+    if(f.type==='select' && f.options && f.options.length===1) f.default = f.options[0];
+    if(f.key==='gst' && f.options && f.options.includes('18')) f.default = '18';
+    if(f.key==='net_quantity' && f.options && f.options.includes('1')) f.default = '1';
+    if(f.key==='dimension_unit' && f.options && f.options.includes('cm')) f.default = 'cm';
+    if(f.key==='inventory') f.default = f.default || '10';
+    if(f.key==='title') f.counter = 100;
+    if(f.key==='description') f.counter = 1500;
+    if(f.key==='brand'){
+      // Disabled by default everywhere — it must exactly match one of Meesho's platform-approved
+      // brand names for the seller's account, so free text here would just get the row rejected.
+      f.list = f.options; f.options = null; f.type = 'text'; f.disabled = true;
+      f.help = (f.help||'') + " Disabled here since it must exactly match one of Meesho's platform-approved brand names for your account — typing anything else gets the row rejected. Leave blank unless you already have an approved brand.";
+    }
+  });
+  PER_VARIANT_KEYS = ['price','return_price','mrp','weight','inventory','color','material','style_id'];
+  SIZE_VARIES = fieldOptions('size').length > 1;
+  if(SIZE_VARIES) PER_VARIANT_KEYS.push('size');
+}
+
+async function fetchCategorySchema(slug){
+  const resp = await fetch('/api/categories/' + encodeURIComponent(slug));
+  const data = await resp.json().catch(()=>({}));
+  if(!resp.ok) throw new Error(data.error || `Could not load category "${slug}"`);
+  return data.schema;
+}
+
+async function listServerCategories(){
+  const resp = await fetch('/api/categories');
+  const data = await resp.json().catch(()=>({}));
+  if(!resp.ok) throw new Error(data.error || 'Could not list categories');
+  return data.categories || [];
+}
+
+// Loads whichever category is active (persisted across reloads) from the server, falling back
+// to an embedded copy of Keychains when there's no server to ask (opened as a plain file).
+async function bootstrapCategory(){
+  if(location.protocol !== 'file:'){
+    try{
+      const schema = await fetchCategorySchema(ACTIVE_CATEGORY);
+      applySchema(schema);
+      return;
+    }catch(e){ /* server not reachable yet, or this category vanished — fall through */ }
+  }
+  ACTIVE_CATEGORY = 'keychains';
+  applySchema(FALLBACK_KEYCHAINS_SCHEMA);
+}
+
 
 // Meesho doesn't publish a full restricted-keyword list (their Instructions sheet only gives
 // examples: "smoking, other portal names, violent slogans" — the rest lives in each seller's
@@ -295,75 +371,86 @@ function updateRiskWordDisplay(key){
     : '';
 }
 
-/* ============ Field definitions — mirrors columns D..AP of the real "Keychains-Fill this" sheet ============ */
-const GROUPS = [
-  {key:'identity', title:'Listing Identity'},
-  {key:'pricing',  title:'Pricing & Tax'},
-  {key:'images',   title:'Images'},
-  {key:'details',  title:'Product Details'},
-  {key:'legal',    title:'Manufacturer, Packer & Importer'},
-];
+// Embedded copy of the Keychains schema — used only when there's no server to ask (opened as a
+// plain file). The server derives this same shape from the real template.xlsx at startup;
+// keep this in sync if that file ever changes.
+const FALLBACK_KEYCHAINS_SCHEMA = {
+  name: 'Keychains',
+  sheetName: 'Keychains-Fill this',
+  firstDataRow: 5,
+  groups: [
+    {key:'identity', title:'Listing Identity'},
+    {key:'pricing',  title:'Pricing & Tax'},
+    {key:'images',   title:'Images'},
+    {key:'details',  title:'Product Details'},
+    {key:'legal',    title:'Manufacturer, Packer & Importer'},
+  ],
+  sizeOptions: ['Free Size'],
+  fields: [
+    {key:'title', label:'Product Name', col:4, group:'identity', required:true, type:'text',
+      help:'Avoid adding weight, dimensions or price here — those have their own fields.'},
+    {key:'generic_name', label:'Generic Name', col:24, group:'identity', required:true, type:'select',
+      options:["Accessories","Bottom Wear","Garment","Keychains","Others","Sportswear","Topwear","Undergarment"]},
+    {key:'group_id', label:'Group ID', col:40, group:'identity', required:false, type:'select',
+      options:["Group 01","Group 02","Group 03","Group 04","Group 05","Group 06","Group 07","Group 08","Group 09","Group 10","Group 11","Group 12","Group 13","Group 14","Group 15","Group 16","Group 17","Group 18","Group 19","Group 20","Group 21","Group 22","Group 23","Group 24","Group 25","Group 26","Group 27","Group 28","Group 29","Group 30"],
+      help:'Pick the same Group ID for products that should be grouped into one listing on the Meesho app.'},
+    {key:'brand_name', label:'Brand Name', col:39, group:'identity', required:false, type:'text'},
+    {key:'brand', label:'Brand', col:42, group:'identity', required:false, type:'select',
+      options:["19TH JULY JEWELS","A3DG Anmol3DGallery","ACHERON","ACLIX","ACUTAS","AHMADUN","AJS","ALLIED SALES INDIA","AMAR ENTERPRISE","ASAYATI","AYVION","Afra","Ajmera Fashion","Alexus","Aliza","Allen Solly","Allymen","Alto Prints","Alyne","Amani","Amante","Amara","Ananya Fashion","Angelo","Anora","Anouk","Antra","Artful Abode","Aruna Decor","Asami","Attire Icon","Avasa","Avits","Awalkonda","Awnara","BANISTROKES","BHAVYTA","BOLSAVIRA By DesireOn","BROWN Craft","Baliye","Barstow","Being Human","Bella N Bloom","Belliza Designer","Beltly","Benares Souvenirs","Bhavyam enterprise","Bigboss","BiggSmile","Blue Star","Bruno","Buko AEC","CADDLE & TOES","CADEAU","CHAINSPRO","CHANDRANI","COPEHI","CRAFTAM","CREEKNEST...ALL THAT YOU WANT","Cadila","Campus Sutra","Cantabil","Chandrika","Climberty","Clint","Cloverbyte","Comfort Lady","Cozycato","Craft Corner","Craft Shilp","Cuberkart","Curly Tales","DEBONAIR","DECOROID","DEETHYAS","DHANVI ENTERPRISE","DOKCHAN","DOPESTREET","DaMENSCH","Dais","DecorArtisans","Deethyas FASHION","Del Luna","Devlink","Diaz","Divaas","Diyansh","Dizon","DnH","Dollar Bigboss","Dollar Lehar","Dollar Missy","Dollar Ultra","Dollar Wintercare","Dongli","Dressberry","Drippy Prints","ECLET","ELEPHANTBOAT","EVAN ENTERPRISE","Elaasa","Elite Twist Creations","Envie","Erica","Evordlss","Exprintify","FAYA","FINAL DECOR","FINZ","FITNICK","Faizam Collection","Fassy","Fenicottero","Firstcry","Floret","Fly Birds","Flying Machine","FoMe","Force","Fort Collins","Fuaark","Fubar","GARIHC ENTERPRISE","GCT","GIFTING SOLUTION","GIFTY LUXE","GKM","GLAZU","GT Gala Time","GUSTAVE","Gajal","GharBuddy","Giftingazebo","Gifts Bucket","Govind Crafted","Gritstones","Guti","HANDMADE HUES","HANNEA","HASTHIP","HATAKE","HAVENHUED","HAVLORE","HEMRAJ CRAFTS","HINSHOZ","HKL PRESENT","Haripriya Jewells","Highlander","Highlark","Hikaru","Hipop","Hivata","House Of Commons","I. K. DESIGNS","IFKA Premium","ISHYAR","ISM366","Indocraft","Infinium","Ingrid","JELECTRICALS","JEMIFLY","JKS AVENUE","Javier","Jdp Novelty","Jivika","Jogger's Park","Jompers","Juniper","K Kaparrow","KALANIDHI GIFTS","KANGUVA","KENMA","KEYKEI","KEYLYN","KIDPLAST","KIPSOME","KORTELOZ","KRAFTEDKEY","Kairangi","Kaizen Enterprises","Kajal Kurti","Kanjilal","Karly","Keyzone","KiaNic","Komli","Krishna Enterprises","Kryst","Kuki","LUXXORA","Libas","MAHSON","MAKEPHOTOGIFTS","MAYCREATE","MBA GIFT WALA","MBS DECOR","MEHJ","MIRAN AGATE","MIZI CRAFT","MOOHFAT","MT FEATHERS","Magic Art Pune","Magneto","Magpy","Mahi","Manibam Impex","Manohari","Maroon Clothing","Marwars","Mast & Harbour","Mast Kalandar","Max","Mayur Kurtis","McCarthy","Meile","Merry poppin's","Metronaut","Milan","Miniature World 3D","Mitos","Mshine","Murk Shield","N WALLETS","NAAME","NADNAM","NAIVYA","NIVIZEN","NRG","NSV","NVP ENTERPRISES","Nama","New Print Creations","Nicsy","Niya","Nobero","Noori","NuttyWears","OFIFO","ONYC","OSMLY","Om Enterprise","Optifit","Oswaal","Oswal","Oviya","PAIJASH","PALAY","PATPAT","PEACOCKRIDE","PINK GALAXY","PK ENTERPRISES","PS PRODUCTS","Pantaloons","Paper Being","Parallel World Mart","Parasnath","Parco","Pearl Ocean","Pearlish","Penti","Peter England","Pingala","Planet Popcorn","PlusS","Printality","Prita","Priyaasi","Prolook","Proxima","R.N SAMRIDHI ENTERPRISES","RAMA RADIANCE","RATNA'S","REDHORNS","RIKHEEYA","RINGZANIO","RMVRINDA","RUDRAMYST","RainSound","Rajnandini","Rare","Ravens","Raymond","Real Craft","Regy","Relicon","Retrosound","Rowaro","Rtnahsij","Rupa Jon","Rupa Macroman M Series","Rupa Macrowoman W Series","S-Line","SAANVYA","SAHIB COLLECTION","SAINEX","SANNIDHI","SANNO WORLD","SGE 89","SHILPMART","SHOBHA ENTERPRISES","SNOWIE SOFT","SRB","STHIRA","Saanjh","Saara","Saarthikart","Sadiya","Sahana","Samyak","Sanch","Sangath","Sangpri","Sassafras","Sbb Novelty","Sehaj","Serplex","Seven Square","Seyon Enterprises","Shakti Enterprises","Shanaya Atelier","Shaping Fabric","Shaun","Shining Gift","Shiv Enterprise","Shivaay","Shivika Rohilla Chess Academy","Shoolin","Shyam Enterprises","Shyaway","Siya","Smara Creations","Snitch","Sonari","Sparsh Collection","Spelerio","Spigen","Sport Sun","Sprysh","Spykar","Stellers","Stitch N love handmade with heart","Sunnah Collection House","Supvox","Suti","Svatantra","TANSTITCH","TANTIQUE","TEXTURE","THAMPZ","THE BEAUTY QUEEN","THE MEN GIFT","TRK HUB","TRK IMPEX","TU4 Enterprise","Tashis Pet Junction","Taskin","TasmAI","Techiefox","Techpro","The Bear House","The Gift Berry","Thira","Thomas Scott","Threefold Spirit","Tintin","Tokyo Talkies","Toyaana","Tracy","Trendy Gifts","Trylo","Tweens","Twin Birds","Twin Brothers","Tyrell","UJJWAL ENTERPRISES","Ugees","Uniq","United Colors Of Benetton","Urbanpop","Utsa","Uturn","VANDU ENTERPRISE","VASUUS","VATTU","VDP ENTERPRISES","VMart","VOONTO","VOSTRO","VStar","Valaris","Valmo","Varanga","Vardhman","Veirdo","Verilux","Vibhuprises","Vibry","Virom","Vishal Mega Mart","Vivas","Vymo","WZZA","Wembley","Winget","Winkeli Traders","Wishland","World Gift Mart","WowNow","Wrogn","Wyatt","YAKSHU","Yana","Yashika","Yellow Chimes","You Forever","Yousta","ZEITEL","ZELOXA","ZIRAK","ZORBES","ZUBIHS","ZYZTA","Zeba","ZemGlam","Zibuyu","Zimli","Zivame","Zudio","discopumpkin","excitingLives","flashing click","keyclub","onitore","physicswallah","pw","woonk"]},
 
-const FIELDS = [
-  {key:'title', label:'Product Name', col:4, group:'identity', required:true, type:'text', counter:100,
-    help:'Avoid adding weight, dimensions or price here — those have their own fields.'},
-  {key:'generic_name', label:'Generic Name', col:24, group:'identity', required:true, type:'select', options:V_GENERIC_NAME, default:'Keychains'},
-  {key:'group_id', label:'Group ID', col:40, group:'identity', required:false, type:'select', options:V_GROUP_ID,
-    help:'Pick the same Group ID for products that should be grouped into one listing on the Meesho app.'},
-  {key:'brand_name', label:'Brand Name', col:39, group:'identity', required:false, type:'text'},
-  {key:'brand', label:'Brand', col:42, group:'identity', required:false, type:'text', list:V_BRAND, disabled:true,
-    help:"Optional, and disabled here since it must exactly match one of Meesho's platform-approved brand names for your account — typing anything else gets the row rejected. Leave blank unless you already have an approved brand; enable it yourself in code if you do."},
+    {key:'price', label:'Meesho Price (INR)', col:6, group:'pricing', required:true, type:'number',
+      help:'Your normal selling price. Buyers at this price can return for any reason.'},
+    {key:'return_price', label:'Wrong/Defective Returns Price (INR)', col:7, group:'pricing', required:false, type:'number',
+      help:'Optional lower price where only wrong/defective returns are accepted. Meesho suggests ~₹12 below Meesho Price.'},
+    {key:'mrp', label:'MRP (INR)', col:8, group:'pricing', required:true, type:'number',
+      help:'Maximum Retail Price — must be ≥ Meesho Price.'},
+    {key:'gst', label:'GST %', col:9, group:'pricing', required:true, type:'select', options:["18","5"]},
+    {key:'hsn', label:'HSN ID', col:10, group:'pricing', required:true, type:'select',
+      options:["392640","392690","39269099","441193","600624","630710","731589","732690","830890","910111","95030010"],
+      help:'Only these HSN codes are valid for the Keychains category on Meesho.'},
 
-  {key:'price', label:'Meesho Price (INR)', col:6, group:'pricing', required:true, type:'number',
-    help:'Your normal selling price. Buyers at this price can return for any reason.'},
-  {key:'return_price', label:'Wrong/Defective Returns Price (INR)', col:7, group:'pricing', required:false, type:'number',
-    help:'Optional lower price where only wrong/defective returns are accepted. Meesho suggests ~₹12 below Meesho Price.'},
-  {key:'mrp', label:'MRP (INR)', col:8, group:'pricing', required:true, type:'number',
-    help:'Maximum Retail Price — must be ≥ Meesho Price.'},
-  {key:'gst', label:'GST %', col:9, group:'pricing', required:true, type:'select', options:V_GST, default:'18'},
-  {key:'hsn', label:'HSN ID', col:10, group:'pricing', required:true, type:'select', options:V_HSN,
-    help:'Only these HSN codes are valid for the Keychains category on Meesho.'},
+    {key:'main_image', label:'Image 1 (Front)', col:33, group:'images', required:true, type:'text'},
+    {key:'other_image_1', label:'Image 2', col:34, group:'images', required:false, type:'text'},
+    {key:'other_image_2', label:'Image 3', col:35, group:'images', required:false, type:'text'},
+    {key:'other_image_3', label:'Image 4', col:36, group:'images', required:false, type:'text'},
 
-  {key:'main_image', label:'Image 1 (Front)', col:33, group:'images', required:true, type:'url'},
-  {key:'other_image_1', label:'Image 2', col:34, group:'images', required:false, type:'url'},
-  {key:'other_image_2', label:'Image 3', col:35, group:'images', required:false, type:'url'},
-  {key:'other_image_3', label:'Image 4', col:36, group:'images', required:false, type:'url'},
+    {key:'size', label:'Variation', col:5, group:'details', required:true, type:'select', options:['Free Size']},
+    {key:'weight', label:'Net Weight (gms)', col:11, group:'details', required:true, type:'number'},
+    {key:'inventory', label:'Inventory', col:12, group:'details', required:true, type:'number'},
+    {key:'color', label:'Color', col:23, group:'details', required:true, type:'select',
+      options:["Beige","Black","Blue","Brown","Coral","Cream","Gold","Green","Grey","Grey Melange","Khaki","Lavendar","Maroon","Metallic","Multicolor","Mustard","Navy Blue","Nude","Olive","Orange","Peach","Pink","Purple","Red","Rust","Silver","Teal","White","Yellow"]},
+    {key:'material', label:'Material', col:25, group:'details', required:true, type:'select',
+      options:["Canvas","Canvas & Leather","Fabric","Faux Leather/Leatherette","Leather","MDF","Metal","PU","Plastic","Polyester","Resin","Suede","Synthetic","Wooden"]},
+    {key:'net_quantity', label:'Net Quantity (N)', col:26, group:'details', required:true, type:'select', options:["1","10","2","3","4","5","6","7","8","9"]},
+    {key:'dimension_unit', label:'Product Dimension Unit', col:27, group:'details', required:true, type:'select', options:["cm","ft","inch","m","mm"]},
+    {key:'height', label:'Product Height', col:28, group:'details', required:true, type:'number'},
+    {key:'length', label:'Product Length', col:29, group:'details', required:true, type:'number'},
+    {key:'width', label:'Product Width', col:30, group:'details', required:true, type:'number'},
+    {key:'shape', label:'Shape', col:31, group:'details', required:true, type:'select',
+      options:["Butterfly","Circle","D Shape","Diamond","Heart","Hexagonal","Oblong","Oval","Pear","Pentagonal","Rectangular","Round","Square","Star","Triangular"]},
+    {key:'type', label:'Type', col:32, group:'details', required:true, type:'select',
+      options:["Animal","Anime Keychains","BT21 Keychain","BTS","Bike Keychains","Car Keychain","Cartoon","Challa Keychain","Couple Keychain","Customized Keychain","Drive Safe Keychain","Evil Eye Keychain","Gas Lighter Keychain","Henna/Mehandi Keychain","Love Keychain","Music","Photo Keychain","Pop It Keychain","Smiley Keychain","Sports"]},
+    {key:'style_id', label:'Product ID / Style ID', col:37, group:'details', required:false, type:'text',
+      help:'Same across Size variants of one item, different across Color variants.'},
+    {key:'sku', label:'SKU ID', col:38, group:'details', required:false, type:'text',
+      help:'Meesho allows this to be blank (auto-generated), but we require it here to track rows in your list.'},
+    {key:'description', label:'Product Description', col:41, group:'details', required:false, type:'textarea',
+      help:"Stick to factual product details. Avoid promotional/medical claims, competitor marketplace names, or restricted-topic words — Meesho scans for these and a real upload got flagged for using \"essentials\". Meesho's full list only lives in your own Supplier Panel (Settings → Legal and Policies → Prohibited Items)."},
 
-  {key:'size', label:'Variation (Size)', col:5, group:'details', required:true, type:'select', options:V_SIZE, default:'Free Size'},
-  {key:'weight', label:'Net Weight (gms)', col:11, group:'details', required:true, type:'number'},
-  {key:'inventory', label:'Inventory (stock count)', col:12, group:'details', required:true, type:'number', default:'10'},
-  {key:'color', label:'Color', col:23, group:'details', required:true, type:'select', options:V_COLOR},
-  {key:'material', label:'Material', col:25, group:'details', required:true, type:'select', options:V_MATERIAL},
-  {key:'net_quantity', label:'Net Quantity (N)', col:26, group:'details', required:true, type:'select', options:V_NET_QUANTITY, default:'1'},
-  {key:'dimension_unit', label:'Product Dimension Unit', col:27, group:'details', required:true, type:'select', options:V_DIMENSION_UNIT, default:'cm'},
-  {key:'height', label:'Product Height', col:28, group:'details', required:true, type:'number'},
-  {key:'length', label:'Product Length', col:29, group:'details', required:true, type:'number'},
-  {key:'width', label:'Product Width', col:30, group:'details', required:true, type:'number'},
-  {key:'shape', label:'Shape', col:31, group:'details', required:true, type:'select', options:V_SHAPE},
-  {key:'type', label:'Type', col:32, group:'details', required:true, type:'select', options:V_TYPE},
-  {key:'style_id', label:'Product ID / Style ID', col:37, group:'details', required:false, type:'text',
-    help:'Same across Size variants of one item, different across Color variants.'},
-  {key:'sku', label:'SKU ID', col:38, group:'details', required:true, type:'text',
-    help:'Meesho allows this to be blank (auto-generated), but we require it here to track rows in your list.'},
-  {key:'description', label:'Product Description', col:41, group:'details', required:false, type:'textarea', counter:1500,
-    help:"Stick to factual product details. Avoid promotional/medical claims, competitor marketplace names, or restricted-topic words — Meesho scans for these and a real upload got flagged for using \"essentials\". Meesho's full list only lives in your own Supplier Panel (Settings → Legal and Policies → Prohibited Items)."},
-
-  {key:'country_of_origin', label:'Country of Origin', col:13, group:'legal', required:true, type:'select', options:V_COUNTRY, default:'India'},
-  {key:'manufacturer', label:'Manufacturer Name', col:14, group:'legal', required:true, type:'text'},
-  {key:'manufacturer_address', label:'Manufacturer Address', col:15, group:'legal', required:true, type:'text'},
-  {key:'manufacturer_pincode', label:'Manufacturer Pincode', col:16, group:'legal', required:true, type:'text'},
-  {key:'packer', label:'Packer Name', col:17, group:'legal', required:true, type:'text'},
-  {key:'packer_address', label:'Packer Address', col:18, group:'legal', required:true, type:'text'},
-  {key:'packer_pincode', label:'Packer Pincode', col:19, group:'legal', required:true, type:'text'},
-  {key:'importer', label:'Importer Name', col:20, group:'legal', required:true, type:'text',
-    help:"If you don't import, many sellers repeat their Manufacturer details here — check current Meesho guidance."},
-  {key:'importer_address', label:'Importer Address', col:21, group:'legal', required:true, type:'text'},
-  {key:'importer_pincode', label:'Importer Pincode', col:22, group:'legal', required:true, type:'text'},
-];
-
-// Fields that vary per color in "Product with Variations" mode — everything else on the
-// form is shared across every variation row.
-const PER_VARIANT_KEYS = ['price','return_price','mrp','weight','inventory','color','material','style_id'];
+    {key:'country_of_origin', label:'Country of Origin', col:13, group:'legal', required:true, type:'select',
+      options:["Afghanistan","Albania","Algeria","Andorra","Angola","Antigua and Barbuda","Argentina","Armenia","Australia","Austria","Azerbaijan","Bahamas","Bahrain","Bangladesh","Barbados","Belarus","Belgium","Belize","Benin","Bhutan","Bolivia","Bosnia-Herzegovina","Botswana","Brazil","Brunei","Bulgaria","Burkina Faso","Burundi","Cabo Verde","Cambodia","Cameroon","Canada","Central African Rep","Chad","Chile","China","Colombia","Comoros","Congo","Costa Rica","Croatia","Cuba","Cyprus","Czechia","DRC Congo","Denmark","Djibouti","Dominica","Dominican Republic","Ecuador","Egypt","El Salvador","Equatorial Guinea","Eritrea","Estonia","Eswatini","Ethiopia","Fiji","Finland","France","Gabon","Gambia","Georgia","Germany","Ghana","Greece","Grenada","Guatemala","Guinea","Guinea Bissau","Guyana","Haiti","Holy See","Honduras","Hungary","Iceland","India","Indonesia","Iran","Iraq","Ireland","Israel","Italy","Jamaica","Japan","Jordan","Kazakhstan","Kenya","Kiribati","Kuwait","Kyrgyzstan","Laos","Latvia","Lebanon","Lesotho","Liberia","Libya","Liechtenstein","Lithuania","Luxembourg","Madagascar","Malawi","Malaysia","Maldives","Mali","Malta","Marshall Islands","Mauritania","Mauritius","Mexico","Micronesia","Moldova","Monaco","Mongolia","Montenegro","Morocco","Mozambique","Myanmar","Namibia","Nauru","Nepal","Netherlands","New Zealand","Nicaragua","Niger","Nigeria","North Korea","North Macedonia","Norway","Oman","Palau","Palestine State","Panama","Papua New Guinea","Paraguay","Peru","Philippines","Poland","Portugal","Qatar","Romania","Russia","Rwanda","Saint Kitts & Nevis","Saint Lucia","Samoa","San Marino","Sao Tome","Saudi Arabia","Senegal","Serbia","Seychelles","Sierra Leone","Singapore","Slovakia","Slovenia","Solomon Islands","Somalia","South Africa","South Korea","South Sudan","Spain","Sri Lanka","St Vincent","Sudan","Suriname","Sweden","Switzerland","Syria","Tajikistan","Tanzania","Thailand","Timor Leste","Togo","Tonga","Trinidad and Tobago","Tunisia","Turkey","Turkmenistan","Tuvalu","UAE","USA","Uganda","Ukraine","United Kingdom","Uruguay","Uzbekistan","Vanuatu","Venezuela","Vietnam","Yemen","Zambia","Zimbabwe"]},
+    {key:'manufacturer', label:'Manufacturer Name', col:14, group:'legal', required:true, type:'text'},
+    {key:'manufacturer_address', label:'Manufacturer Address', col:15, group:'legal', required:true, type:'text'},
+    {key:'manufacturer_pincode', label:'Manufacturer Pincode', col:16, group:'legal', required:true, type:'text'},
+    {key:'packer', label:'Packer Name', col:17, group:'legal', required:true, type:'text'},
+    {key:'packer_address', label:'Packer Address', col:18, group:'legal', required:true, type:'text'},
+    {key:'packer_pincode', label:'Packer Pincode', col:19, group:'legal', required:true, type:'text'},
+    {key:'importer', label:'Importer Name', col:20, group:'legal', required:true, type:'text',
+      help:"If you don't import, many sellers repeat their Manufacturer details here — check current Meesho guidance."},
+    {key:'importer_address', label:'Importer Address', col:21, group:'legal', required:true, type:'text'},
+    {key:'importer_pincode', label:'Importer Pincode', col:22, group:'legal', required:true, type:'text'},
+  ],
+};
 
 const SAMPLE = {
   title:'Asha Maven Premium Metal Keychain Heavy Duty Keyring for Car and Home Keys',
@@ -401,7 +488,7 @@ const PROFILE_FIELDS = [
   {key:'country_of_origin', label:'Country of Origin', default:'India'},
   {key:'brand_name', label:'Brand Name', default:'Asha Maven'},
   {key:'gst', label:'GST %', default:'18'},
-  {key:'hsn', label:'HSN ID', default:'830890'},
+  {key:'hsn', label:'HSN ID', default:''}, // HSN codes are category-specific — no safe universal guess
   {key:'dimension_unit', label:'Product Dimension Unit', default:'cm'},
 ];
 let profile = {};
@@ -436,13 +523,14 @@ function loadProfile(){
   // Self-heal a value saved before these became dropdowns (e.g. "18%" typed into the free-text
   // GST box, which passed straight through to a real Meesho upload and got rejected).
   let healed = false;
-  [['gst', V_GST], ['hsn', V_HSN], ['dimension_unit', V_DIMENSION_UNIT]].forEach(([key, list])=>{
+  [['gst', fieldOptions('gst')], ['hsn', fieldOptions('hsn')], ['dimension_unit', fieldOptions('dimension_unit')]].forEach(([key, list])=>{
     const current = (profile[key]||'').toString();
-    if(current && !list.includes(current)){
+    if(current && list.length && !list.includes(current)){
       const stripped = current.replace(/[^A-Za-z0-9]/g, '');
       const match = list.find(o=>o===stripped) || closestOption(current, list);
-      const fallback = PROFILE_FIELDS.find(pf=>pf.key===key).default;
-      profile[key] = match || fallback;
+      // No safe universal fallback (a wrong HSN code is as bad as none) — clear it rather than
+      // re-baking a value that might not even apply to this category, and let validation ask for it.
+      profile[key] = match || '';
       healed = true;
     }
   });
@@ -456,14 +544,18 @@ function profileDefault(key, fallback){
 
 // A few seller-default fields must match one of Meesho's fixed dropdown values exactly
 // (typing "18%" instead of "18" here is what got a real upload rejected) — render those
-// as selects instead of free text, same lists the per-product form validates against.
-const PROFILE_FIELD_OPTIONS = {gst: V_GST, hsn: V_HSN, dimension_unit: V_DIMENSION_UNIT};
+// as selects instead of free text, same lists the per-product form validates against. Computed
+// fresh each time (not a fixed const) since which fields even exist depends on the active category.
+function getProfileFieldOptions(){
+  return {gst: fieldOptions('gst'), hsn: fieldOptions('hsn'), dimension_unit: fieldOptions('dimension_unit')};
+}
 
 function renderSettings(){
   const wrap = document.getElementById('settingsFields');
+  const profileFieldOptions = getProfileFieldOptions();
   wrap.innerHTML = `<div class="grid">` + PROFILE_FIELDS.map(pf=>{
     const val = profileDefault(pf.key, pf.default).toString();
-    const options = PROFILE_FIELD_OPTIONS[pf.key];
+    const options = profileFieldOptions[pf.key];
     const control = options
       ? `<select id="pf_${pf.key}">${options.map(o=>`<option value="${escapeHtml(o)}"${o===val?' selected':''}>${escapeHtml(o)}</option>`).join('')}</select>`
       : `<input id="pf_${pf.key}" type="text" value="${val.replace(/"/g,'&quot;')}" autocomplete="off">`;
@@ -488,7 +580,8 @@ document.getElementById('saveSettingsBtn').addEventListener('click', ()=>{
 });
 
 /* ============ State ============ */
-const STORAGE_KEY = 'meesho_keychain_catalog_v2';
+const LEGACY_KEYCHAINS_STORAGE_KEY = 'meesho_keychain_catalog_v2';
+function storageKeyForCategory(slug){ return 'meesho_catalog_v2__' + slug; }
 let products = [];
 let editingIndex = null;
 let mode = 'single'; // 'single' | 'variations'
@@ -511,12 +604,13 @@ function scrollToFirstInvalid(){
 
 function loadState(){
   try{
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if(raw) products = JSON.parse(raw) || [];
+    let raw = localStorage.getItem(storageKeyForCategory(ACTIVE_CATEGORY));
+    if(!raw && ACTIVE_CATEGORY==='keychains') raw = localStorage.getItem(LEGACY_KEYCHAINS_STORAGE_KEY); // one-time migration
+    products = raw ? (JSON.parse(raw) || []) : [];
   }catch(e){ products = []; }
 }
 function saveState(){
-  try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(products)); }catch(e){}
+  try{ localStorage.setItem(storageKeyForCategory(ACTIVE_CATEGORY), JSON.stringify(products)); }catch(e){}
 }
 
 function emptyForm(){
@@ -526,6 +620,7 @@ function emptyForm(){
 }
 function newVariationRow(){
   return {color:'', material:'', style_id:'', skuSuffix:'', price:'', return_price:'', mrp:'', weight:'', inventory: profileDefault('inventory','10'),
+    size: SIZE_VARIES ? fieldOptions('size')[0] : '',
     main_image:'', other_image_1:'', other_image_2:'', other_image_3:''};
 }
 let form = emptyForm();
@@ -731,7 +826,7 @@ function closestOption(value, options){
 // alone leaves the field blank most of the time. Since the field can only legally hold one of
 // those 11 values anyway, fall back to the seller's configured default rather than nothing.
 function resolveHsnGuess(guess){
-  return closestOption((guess||'').toString(), V_HSN) || profileDefault('hsn', '830890');
+  return closestOption((guess||'').toString(), fieldOptions('hsn')) || profileDefault('hsn', '');
 }
 
 // Scoped version of the combined Enhance flow for one color variant's own photo — each row can look
@@ -748,15 +843,15 @@ async function analyzeVariationPhotoWithAI(i, id){
     const base64 = await blobToBase64(blob);
     const mimeType = blob.type || 'image/png';
     const model = (profile.geminiTextModel || DEFAULT_GEMINI_TEXT_MODEL).trim();
-    const prompt = `This photo shows one color variant of a keychain product${form.title.trim()?` (product line: "${form.title.trim()}")`:''}. Respond with ONLY a JSON object (no markdown) with "color" (single closest to: ${V_COLOR.join(', ')}) and "material" (single closest to: ${V_MATERIAL.join(', ')}) — omit a key you genuinely cannot tell from the photo.`;
+    const prompt = `This photo shows one color variant of a keychain product${form.title.trim()?` (product line: "${form.title.trim()}")`:''}. Respond with ONLY a JSON object (no markdown) with "color" (single closest to: ${fieldOptions('color').join(', ')}) and "material" (single closest to: ${fieldOptions('material').join(', ')}) — omit a key you genuinely cannot tell from the photo.`;
     const respText = await callGeminiText(geminiKey, model, base64, mimeType, prompt);
     let parsed = null;
     try{ parsed = JSON.parse(respText.replace(/^```json\s*|```\s*$/g,'').trim()); }catch(e){ parsed = null; }
     const applied = [];
     if(parsed){
-      const colorMatch = closestOption(parsed.color, V_COLOR);
+      const colorMatch = closestOption(parsed.color, fieldOptions('color'));
       if(colorMatch && !variationRows[i].color){ variationRows[i].color = colorMatch; applied.push('Color'); }
-      const materialMatch = closestOption(parsed.material, V_MATERIAL);
+      const materialMatch = closestOption(parsed.material, fieldOptions('material'));
       if(materialMatch && !variationRows[i].material){ variationRows[i].material = materialMatch; applied.push('Material'); }
     }
     if(applied.length){ renderVariationTable(); showToast(`Row ${i+1}: filled ${applied.join(', ')} from its photo`); }
@@ -832,6 +927,87 @@ function extractAIDescriptionTrigger(text){
 // text together when both are available (each fills gaps the other can't).
 let pendingQuickFill = null; // {parsed, wantsAI, proposedDescription, proposedSku}
 
+// Fields the AI is asked to extract generically — every field in the active category's schema
+// EXCEPT plumbing (images, SKU/Style ID which are auto-suggested, Group ID which is a grouping
+// choice not a product attribute, Brand which is locked) and legal/manufacturer fields (those
+// come from the seller's Settings profile, not per-product content). Built fresh off whatever
+// category is active, so a category with fields Keychains never had (Included Components,
+// Recommended Age, a certification number, ...) gets asked about too — not just a fixed list.
+const AI_NON_EXTRACTABLE_KEYS = new Set([
+  'title','description','main_image','other_image_1','other_image_2','other_image_3',
+  'sku','style_id','group_id','brand',
+  'country_of_origin','manufacturer','manufacturer_address','manufacturer_pincode',
+  'packer','packer_address','packer_pincode','importer','importer_address','importer_pincode',
+]);
+function aiExtractableFields(){
+  return FIELDS.filter(f=>!AI_NON_EXTRACTABLE_KEYS.has(f.key) && f.key!=='color');
+}
+// Some categories present a dimension/weight-style field as a dropdown of hundreds of specific
+// numeric values (e.g. 0.5, 1, 1.5, ... 100) rather than free numeric input. Enumerating all of
+// them in an AI prompt or as wizard chips is impractical — these are detected and treated as
+// "pick a number in this range" instead, then snapped to the nearest valid option afterward.
+const LARGE_OPTION_LIST_THRESHOLD = 30;
+function isNumericOptionList(options){
+  return !!options && options.length>0 && options.every(o=>o!=='' && !isNaN(parseFloat(o)) && isFinite(o));
+}
+function isLargeNumericSelect(f){
+  return f.type==='select' && f.options && f.options.length>LARGE_OPTION_LIST_THRESHOLD && isNumericOptionList(f.options);
+}
+function closestNumericOption(value, options){
+  const num = parseFloat(value);
+  if(isNaN(num)) return closestOption(value, options);
+  let best = null, bestDiff = Infinity;
+  options.forEach(o=>{
+    const on = parseFloat(o);
+    if(isNaN(on)) return;
+    const diff = Math.abs(on-num);
+    if(diff<bestDiff){ bestDiff = diff; best = o; }
+  });
+  return best;
+}
+function promptFieldSpec(f){
+  if(isLargeNumericSelect(f)){
+    const nums = f.options.map(o=>parseFloat(o)).filter(n=>!isNaN(n));
+    return `"${f.key}" (${f.label} — a number, roughly between ${Math.min(...nums)} and ${Math.max(...nums)})`;
+  }
+  if(f.type==='select') return `"${f.key}" (${f.label} — single closest to: ${f.options.join(', ')})`;
+  if(f.type==='number') return `"${f.key}" (${f.label} — a number)`;
+  return `"${f.key}" (${f.label} — short text, factual only)`;
+}
+
+// Builds the "what to mention" hint fresh for whichever category is active, as a real paragraph
+// above the textarea (not buried in a placeholder) — every field that matters gets listed, so
+// this doubles as a checklist of what Meesho wants, not just a Keychains-shaped example. A
+// dropdown field gets a small hoverable icon instead of dumping its options inline — hover (or
+// focus, for keyboard use) to see the full list in a small scrollable popover; free-text/number
+// fields just show a dash.
+function fieldHintItemHtml(f, label, required){
+  label = escapeHtml(label);
+  if(f.type==='select' && !isLargeNumericSelect(f)){
+    const opts = (f.options||[]).map(escapeHtml).join(', ');
+    return `<span class="field-hint-item"><strong>${label}</strong><span class="dropdown-icon" tabindex="0">▾<span class="dropdown-tooltip">${opts}</span></span>${required?'':' <span class="field-hint-optional">(optional)</span>'}</span>`;
+  }
+  const numHint = isLargeNumericSelect(f)
+    ? (() => { const nums = f.options.map(o=>parseFloat(o)).filter(n=>!isNaN(n)); return ` <span class="field-hint-optional">(${Math.min(...nums)}-${Math.max(...nums)})</span>`; })()
+    : '';
+  return `<span class="field-hint-item"><strong>${label}</strong> —${numHint}${required?'':' <span class="field-hint-optional">(optional)</span>'}</span>`;
+}
+function buildQuickFillHintsHtml(){
+  const items = [];
+  items.push(fieldHintItemHtml({type:'text'}, 'Product Name', true));
+  if(fieldByKey('color')){
+    items.push(fieldHintItemHtml(fieldByKey('color'), 'Color', fieldByKey('color').required) + ' <span class="field-hint-optional">(list a few for color variations)</span>');
+  }
+  aiExtractableFields().forEach(f=>{
+    items.push(fieldHintItemHtml(f, f.label, f.required));
+  });
+  return `<p class="sub" style="margin:0;">Mention as many of these as you can — hover (or tap) the ▾ on a dropdown field to see its options: ${items.join(', ')}. Then either write a Description yourself or say "generate description with AI".</p>`;
+}
+function updateQuickFillPlaceholder(){
+  const el = document.getElementById('quickFillHints');
+  if(el) el.innerHTML = buildQuickFillHintsHtml();
+}
+
 async function enhanceFreeTextWithAI(){
   const statusEl = document.getElementById('quickFillStatus');
   const previewEl = document.getElementById('quickFillPreview');
@@ -855,7 +1031,11 @@ async function enhanceFreeTextWithAI(){
     const photoPart = imageInfo
       ? 'A reference photo of the item is attached — use it together with the text below (the photo shows real visual attributes; the text may add price, quantity, or other facts the photo can\'t show).'
       : 'No photo was provided — rely on the text alone.';
-    const prompt = `You're helping a seller list a keychain on Meesho. ${photoPart} ${textPart} Respond with ONLY a JSON object (no markdown, no code fences). ALWAYS include "title" (an enhanced, keyword-rich product name under 100 characters — if the seller already gave a rough name, improve its wording; don't leave it generic). Also include any of these keys you can determine from what was given (omit a key only if truly nothing suggests it, don't guess wildly): "colors" (an array of EVERY color mentioned as an available option for this one product, each closest to: ${V_COLOR.join(', ')} — only include this key at all if the seller describes MULTIPLE color choices for the same product; omit it entirely for a single-color product), "color" (single closest to: ${V_COLOR.join(', ')} — the one color, only for a single-color product), "material" (single closest to: ${V_MATERIAL.join(', ')}), "shape" (single closest to: ${V_SHAPE.join(', ')}), "type" (single closest to: ${V_TYPE.join(', ')}), "hsn" (best-guess HSN code, not tax advice), "weight" (number in grams — the shared weight if multiple colors), "net_quantity" (a number 1-10), "price" (number in INR, the normal selling price — the shared price if multiple colors), "return_price" (number in INR, the Wrong/Defective Returns price — usually slightly below price), "mrp" (number in INR, must be >= price), "dimension_unit" (closest to: ${V_DIMENSION_UNIT.join(', ')} — assume "cm" if not stated), "height" (number, only if a height/thickness/depth was stated), "length" (number, only if a length was stated), "width" (number, only if a width was stated).`;
+    const colorSpec = fieldByKey('color')
+      ? `"colors" (an array of EVERY color mentioned as an available option for this one product, each closest to: ${fieldOptions('color').join(', ')} — only include this key at all if the seller describes MULTIPLE color choices for the same product; omit it entirely for a single-color product), "color" (single closest to: ${fieldOptions('color').join(', ')} — the one color, only for a single-color product), `
+      : '';
+    const extractableSpecs = aiExtractableFields().map(promptFieldSpec).join(', ');
+    const prompt = `You're helping a seller list a "${ACTIVE_CATEGORY_NAME}" product on Meesho. ${photoPart} ${textPart} Respond with ONLY a JSON object (no markdown, no code fences). ALWAYS include "title" (an enhanced, keyword-rich product name under 100 characters — if the seller already gave a rough name, improve its wording; don't leave it generic). Also include any of these keys you can determine from what was given — try hard to fill as many as genuinely supported by the photo/text (maximize coverage), but omit a key entirely rather than guess wildly when truly nothing suggests it: ${colorSpec}${extractableSpecs}.`;
     const respText = imageInfo
       ? await callGeminiText(geminiKey, model, imageInfo.base64, imageInfo.mimeType, prompt)
       : await callGeminiTextOnly(geminiKey, model, prompt);
@@ -868,10 +1048,10 @@ async function enhanceFreeTextWithAI(){
     statusEl.innerHTML = '<span class="tag idle">Writing description with AI…</span>';
     const proposedDescription = await generateDescriptionFromKnownFields(geminiKey, model, {
       title: proposedTitle,
-      color: closestOption(parsed.color, V_COLOR) || form.color,
-      material: closestOption(parsed.material, V_MATERIAL) || form.material,
-      shape: closestOption(parsed.shape, V_SHAPE) || form.shape,
-      type: closestOption(parsed.type, V_TYPE) || form.type,
+      color: closestOption(parsed.color, fieldOptions('color')) || form.color,
+      material: closestOption(parsed.material, fieldOptions('material')) || form.material,
+      shape: closestOption(parsed.shape, fieldOptions('shape')) || form.shape,
+      type: closestOption(parsed.type, fieldOptions('type')) || form.type,
     }, imageInfo);
     // Title, Description, SKU ID and Product ID / Style ID are always proposed — the whole point
     // of Enhance is to improve them, not just fill them in when blank. Everything else is only
@@ -880,34 +1060,24 @@ async function enhanceFreeTextWithAI(){
     const proposedStyleId = suggestStyleIdFromTitle(proposedTitle);
     // Multiple colors mentioned ("comes in red, green, blue") means this isn't a single-color
     // product — approving switches to Product with Variations and builds one row per color.
-    const proposedColors = Array.isArray(parsed.colors)
-      ? [...new Set(parsed.colors.map(c=>closestOption(c, V_COLOR)).filter(Boolean))]
+    const proposedColors = fieldByKey('color') && Array.isArray(parsed.colors)
+      ? [...new Set(parsed.colors.map(c=>closestOption(c, fieldOptions('color'))).filter(Boolean))]
       : [];
     const isMultiColor = proposedColors.length > 1;
     // Every proposed value is copied into an editable draft — nothing is locked in until Approve,
     // and every field here can be corrected first (e.g. a wrong price) instead of only being
-    // fixable after it's already in the form.
-    const draft = {
-      title: proposedTitle,
-      description: proposedDescription,
-      sku: proposedSku,
-      style_id: proposedStyleId,
-      hsn: resolveHsnGuess(parsed.hsn),
-      shape: closestOption(parsed.shape, V_SHAPE) || '',
-      type: closestOption(parsed.type, V_TYPE) || '',
-      net_quantity: parsed.net_quantity!=null ? (closestOption(parsed.net_quantity.toString(), V_NET_QUANTITY)||'') : '',
-      dimension_unit: closestOption(parsed.dimension_unit, V_DIMENSION_UNIT) || '',
-      height: parsed.height!=null ? parsed.height.toString() : '',
-      length: parsed.length!=null ? parsed.length.toString() : '',
-      width: parsed.width!=null ? parsed.width.toString() : '',
-      colors: proposedColors.join(', '),
-      color: (!isMultiColor && mode==='single') ? (closestOption(parsed.color, V_COLOR)||'') : '',
-      material: (mode==='single' || isMultiColor) ? (closestOption(parsed.material, V_MATERIAL)||'') : '',
-      weight: (mode==='single' || isMultiColor) && parsed.weight!=null ? parsed.weight.toString() : '',
-      price: (mode==='single' || isMultiColor) && parsed.price!=null ? parsed.price.toString() : '',
-      return_price: (mode==='single' || isMultiColor) && parsed.return_price!=null ? parsed.return_price.toString() : '',
-      mrp: (mode==='single' || isMultiColor) && parsed.mrp!=null ? parsed.mrp.toString() : '',
-    };
+    // fixable after it's already in the form. Built generically off the category's own fields, so
+    // it covers whatever that category defines, not a fixed Keychains-shaped list.
+    const draft = {title: proposedTitle, description: proposedDescription, sku: proposedSku, style_id: proposedStyleId};
+    aiExtractableFields().forEach(f=>{
+      const raw = parsed[f.key];
+      if(raw===undefined || raw===null || raw==='') { draft[f.key] = ''; return; }
+      if(isLargeNumericSelect(f)) draft[f.key] = closestNumericOption(raw, f.options) || '';
+      else draft[f.key] = f.type==='select' ? (closestOption(raw.toString(), f.options)||'') : raw.toString();
+    });
+    if(fieldByKey('hsn')) draft.hsn = resolveHsnGuess(parsed.hsn); // HSN can only legally be one of a fixed few — always guaranteed a value
+    draft.colors = proposedColors.join(', ');
+    draft.color = (!isMultiColor && fieldByKey('color')) ? (closestOption(parsed.color, fieldOptions('color'))||'') : '';
     pendingQuickFill = {draft, isMultiColor};
     renderQuickFillPreview();
     statusEl.innerHTML = '';
@@ -938,31 +1108,46 @@ function renderQuickFillPreview(){
   const previewEl = document.getElementById('quickFillPreview');
   if(!pendingQuickFill){ previewEl.innerHTML = ''; return; }
   const {draft, isMultiColor} = pendingQuickFill;
+  const showPerVariant = mode==='single' || isMultiColor;
   const rows = [];
   rows.push(quickFillFieldRow('Title', 'title', {width:'100%'}));
   rows.push(quickFillFieldRow('Description', 'description', {textarea:true, rows:8}));
   rows.push(quickFillFieldRow('SKU ID (suggested)', 'sku'));
   rows.push(quickFillFieldRow('Product ID / Style ID (suggested)', 'style_id'));
-  rows.push(quickFillFieldRow('HSN ID', 'hsn', {options:V_HSN}));
-  if(draft.shape) rows.push(quickFillFieldRow('Shape', 'shape', {options:V_SHAPE}));
-  if(draft.type) rows.push(quickFillFieldRow('Type', 'type', {options:V_TYPE}));
-  if(draft.net_quantity) rows.push(quickFillFieldRow('Net Quantity', 'net_quantity', {options:V_NET_QUANTITY}));
-  if(draft.dimension_unit) rows.push(quickFillFieldRow('Dimension Unit', 'dimension_unit', {options:V_DIMENSION_UNIT}));
-  if(draft.height) rows.push(quickFillFieldRow('Height', 'height', {number:true, width:'90px'}));
-  if(draft.length) rows.push(quickFillFieldRow('Length', 'length', {number:true, width:'90px'}));
-  if(draft.width) rows.push(quickFillFieldRow('Width', 'width', {number:true, width:'90px'}));
+
   if(isMultiColor){
     rows.push(`<p class="sub" style="margin:4px 0;">Approving will switch to "Product with Variations" and create one row per color below.</p>`);
     rows.push(quickFillFieldRow('Colors (comma-separated)', 'colors', {width:'100%'}));
-  } else if(draft.color){
-    rows.push(quickFillFieldRow('Color', 'color', {options:V_COLOR}));
+  } else if(fieldByKey('color') && draft.color){
+    rows.push(quickFillFieldRow('Color', 'color', {options:fieldOptions('color')}));
   }
-  if(draft.material) rows.push(quickFillFieldRow('Material' + (isMultiColor?' (all colors)':''), 'material', {options:V_MATERIAL}));
-  if(draft.weight) rows.push(quickFillFieldRow('Weight (g)' + (isMultiColor?' (all colors)':''), 'weight', {number:true, width:'90px'}));
-  if(draft.price) rows.push(quickFillFieldRow('Price (₹)' + (isMultiColor?' (all colors)':''), 'price', {number:true, width:'90px'}));
-  if(draft.return_price) rows.push(quickFillFieldRow('Return Price (₹)' + (isMultiColor?' (all colors)':''), 'return_price', {number:true, width:'90px'}));
-  if(draft.mrp) rows.push(quickFillFieldRow('MRP (₹)' + (isMultiColor?' (all colors)':''), 'mrp', {number:true, width:'90px'}));
+
+  // Every other field the category defines — rendered generically, not a fixed list, so a
+  // category with fields Keychains never had still gets a row here when AI found a value.
+  // Anything REQUIRED that AI couldn't determine (and that isn't already covered by a Settings
+  // default) gets flagged below instead of silently vanishing.
+  const reviewNeeded = [];
+  aiExtractableFields().forEach(f=>{
+    const isPerVariant = PER_VARIANT_KEYS.includes(f.key);
+    if(isPerVariant && !showPerVariant) return; // set per-row in the Variations table instead
+    const val = draft[f.key];
+    if(val){
+      const opts = f.type==='select' ? {options:f.options} : f.type==='number' ? {number:true, width:'90px'} : {width:'220px'};
+      rows.push(quickFillFieldRow(f.label + (isPerVariant && isMultiColor ? ' (all colors)' : ''), f.key, opts));
+    } else if(f.required && !(form[f.key]||'').toString().trim()){
+      reviewNeeded.push(f.label);
+    }
+  });
+  if(!isMultiColor && fieldByKey('color') && fieldByKey('color').required && !draft.color && !form.color.trim()){
+    reviewNeeded.push('Color');
+  }
+
+  const reviewBanner = reviewNeeded.length
+    ? `<div class="errbox" style="margin-bottom:8px;"><strong>⚠ Manual review required</strong> — AI couldn't determine: ${escapeHtml(reviewNeeded.join(', '))}. Fill ${reviewNeeded.length===1?'it':'these'} in yourself in Step 3 after approving.</div>`
+    : '';
+
   previewEl.innerHTML = `
+    ${reviewBanner}
     <div class="errbox" style="background:var(--pink-light);border-color:var(--pink);color:var(--pink-dark);">
       <strong>AI suggests (edit anything that's wrong, then approve):</strong>
       ${rows.join('')}
@@ -985,25 +1170,34 @@ function approvePendingQuickFill(){
   if(!pendingQuickFill) return;
   const {draft, isMultiColor} = pendingQuickFill;
   const applied = [];
-  if(draft.title.trim()){ form.title = draft.title.trim(); applied.push('Title'); }
-  if(draft.description.trim()){ form.description = draft.description.trim(); applied.push('Description'); lastAIDescription = form.description; }
-  if(draft.sku.trim()){ form.sku = draft.sku.trim(); applied.push('SKU ID'); }
-  if(draft.style_id.trim()){ form.style_id = draft.style_id.trim(); applied.push('Product ID / Style ID'); }
-  if(draft.hsn.trim()){ form.hsn = draft.hsn.trim(); applied.push('HSN ID'); }
-  if(draft.shape.trim()){ form.shape = draft.shape.trim(); applied.push('Shape'); }
-  if(draft.type.trim()){ form.type = draft.type.trim(); applied.push('Type'); }
-  if(draft.net_quantity.trim()){ form.net_quantity = draft.net_quantity.trim(); applied.push('Net Quantity'); }
-  if(draft.dimension_unit.trim()){ form.dimension_unit = draft.dimension_unit.trim(); applied.push('Dimension Unit'); }
-  if(draft.height.trim()){ form.height = draft.height.trim(); applied.push('Height'); }
-  if(draft.length.trim()){ form.length = draft.length.trim(); applied.push('Length'); }
-  if(draft.width.trim()){ form.width = draft.width.trim(); applied.push('Width'); }
+  const applyShared = (key, label) => {
+    const val = (draft[key]||'').toString().trim();
+    if(val){ form[key] = val; applied.push(label); }
+  };
+  applyShared('title', 'Title');
+  if((draft.description||'').trim()){ form.description = draft.description.trim(); applied.push('Description'); lastAIDescription = form.description; }
+  applyShared('sku', 'SKU ID');
+  applyShared('style_id', 'Product ID / Style ID');
+
+  // Shared (non-per-variant) fields always go straight onto the form; per-variant fields go onto
+  // the form only in Single mode — in Variations mode they instead get applied to every row below.
+  const applyToFormDirectly = mode==='single' && !isMultiColor;
+  aiExtractableFields().forEach(f=>{
+    if(PER_VARIANT_KEYS.includes(f.key)){
+      if(applyToFormDirectly) applyShared(f.key, f.label);
+    } else {
+      applyShared(f.key, f.label);
+    }
+  });
+  if(applyToFormDirectly && fieldByKey('color')) applyShared('color', 'Color');
+
   if(isMultiColor){
     // Multiple colors described for one product: switch to Variations and give every color its
-    // own row, with whatever shared price/weight/material was mentioned applied to each row that
-    // doesn't already have its own value (never overwrites a row you already filled by hand).
-    const editedColors = [...new Set(draft.colors.split(',').map(c=>closestOption(c.trim(), V_COLOR)).filter(Boolean))];
+    // own row, with whatever shared attributes were mentioned applied to each row that doesn't
+    // already have its own value (never overwrites a row you already filled by hand).
+    const editedColors = [...new Set(draft.colors.split(',').map(c=>closestOption(c.trim(), fieldOptions('color'))).filter(Boolean))];
     mode = 'variations';
-    if(!form.group_id){ form.group_id = V_GROUP_ID[0]; }
+    if(!form.group_id){ form.group_id = fieldOptions('group_id')[0]; }
     const isBlankPlaceholder = r => !r.color && !r.material && !r.price && !r.mrp && !r.weight && !r.main_image;
     if(variationRows.length === 1 && isBlankPlaceholder(variationRows[0])) variationRows = [];
     const existingColors = new Set(variationRows.map(r=>r.color).filter(Boolean));
@@ -1014,21 +1208,14 @@ function approvePendingQuickFill(){
       row.skuSuffix = c.toUpperCase().replace(/[^A-Z0-9]+/g,'_');
       variationRows.push(row);
     });
+    const perVariantExtractable = aiExtractableFields().filter(f=>PER_VARIANT_KEYS.includes(f.key));
     variationRows.forEach(r=>{
-      if(draft.material.trim() && !r.material) r.material = draft.material.trim();
-      if(draft.weight.trim() && !r.weight) r.weight = draft.weight.trim();
-      if(draft.price.trim() && !r.price) r.price = draft.price.trim();
-      if(draft.return_price.trim() && !r.return_price) r.return_price = draft.return_price.trim();
-      if(draft.mrp.trim() && !r.mrp) r.mrp = draft.mrp.trim();
+      perVariantExtractable.forEach(f=>{
+        const val = (draft[f.key]||'').toString().trim();
+        if(val && !r[f.key]) r[f.key] = val;
+      });
     });
-    applied.push(`${editedColors.length} color variations (${editedColors.join(', ')}) with shared Price/MRP/Weight/Material`);
-  } else if(mode==='single'){
-    if(draft.color.trim()){ form.color = draft.color.trim(); applied.push('Color'); }
-    if(draft.material.trim()){ form.material = draft.material.trim(); applied.push('Material'); }
-    if(draft.weight.trim()){ form.weight = draft.weight.trim(); applied.push('Weight'); }
-    if(draft.price.trim()){ form.price = draft.price.trim(); applied.push('Price'); }
-    if(draft.return_price.trim()){ form.return_price = draft.return_price.trim(); applied.push('Return Price'); }
-    if(draft.mrp.trim()){ form.mrp = draft.mrp.trim(); applied.push('MRP'); }
+    applied.push(`${editedColors.length} color variations (${editedColors.join(', ')}) with shared attributes`);
   }
   pendingQuickFill = null;
   document.getElementById('quickFillPreview').innerHTML = '';
@@ -1159,16 +1346,21 @@ function copyImagePrompt(id){
 }
 
 /* ============ Render: form ============ */
+// Image columns are identified by key, not by a schema "type" — the generic template parser
+// has no way to know a text column is meant for an image link, only the field's own key does
+// (main_image / other_image_1-3, set up by the label-alias map in server.js).
+function isImageField(fd){ return fd.key==='main_image' || fd.key.startsWith('other_image_'); }
+
 function fieldHtml(fd){
   const val = (form[fd.key] ?? '').toString().replace(/"/g,'&quot;');
   let control = '';
-  if(fd.type === 'select'){
+  if(isImageField(fd)){
+    control = imageUrlInputHtml('f_'+fd.key, form[fd.key]);
+  } else if(fd.type === 'select'){
     control = `<select id="f_${fd.key}">` + `<option value="">— Select —</option>` +
       fd.options.map(o=>`<option value="${o}" ${o===form[fd.key]?'selected':''}>${o}</option>`).join('') + `</select>`;
   } else if(fd.type === 'textarea'){
     control = `<textarea id="f_${fd.key}">${(form[fd.key]||'').replace(/</g,'&lt;')}</textarea>`;
-  } else if(fd.type === 'url'){
-    control = imageUrlInputHtml('f_'+fd.key, form[fd.key]);
   } else {
     const listAttr = fd.list ? `list="dl_${fd.key}"` : '';
     const inputType = fd.type === 'number' ? 'number' : 'text';
@@ -1217,7 +1409,7 @@ function fieldHtml(fd){
   const help = isDefaultImageInVariations
     ? `Used for any color variation that doesn't set its own ${fd.label} in the Variations table below.`
     : fd.help;
-  return `<div class="field${fd.type==='url'?' img-field':''}" id="wrap_${fd.key}">
+  return `<div class="field${isImageField(fd)?' img-field':''}" id="wrap_${fd.key}">
     <label>${label}${labelSuffix}</label>
     ${control}
     ${help?`<div class="help">${help}</div>`:''}
@@ -1288,7 +1480,7 @@ function renderForm(){
 
   FIELDS.forEach(fd=>{
     if(fd.key === 'main_image') return; // handled by renderMainImageStep()
-    if(fd.type === 'url'){
+    if(isImageField(fd)){
       if(document.getElementById('f_'+fd.key)){
         wireImageUrlInput('f_'+fd.key, (val)=>{
           form[fd.key] = val;
@@ -1376,10 +1568,11 @@ function renderVariationTable(){
     return;
   }
   wrap.innerHTML = `<div class="vtable-wrap"><table class="vtable"><thead><tr>
-      <th>Color*</th><th>Material*</th><th>Style ID</th><th>SKU suffix*</th><th>Price*</th><th>Return Price</th><th>MRP*</th><th>Weight(g)*</th><th>Inventory*</th><th>Image 1 (Front)*</th><th>Image 2</th><th>Image 3</th><th>Image 4</th><th></th>
+      <th>Color*</th>${SIZE_VARIES?'<th>Size*</th>':''}<th>Material*</th><th>Style ID</th><th>SKU suffix*</th><th>Price*</th><th>Return Price</th><th>MRP*</th><th>Weight(g)*</th><th>Inventory*</th><th>Image 1 (Front)*</th><th>Image 2</th><th>Image 3</th><th>Image 4</th><th></th>
     </tr></thead><tbody>` + variationRows.map((r,i)=>`<tr>
-      <td>${selectHtml('color', i, r.color, V_COLOR)}</td>
-      <td>${selectHtml('material', i, r.material, V_MATERIAL)}</td>
+      <td>${selectHtml('color', i, r.color, fieldOptions('color'))}</td>
+      ${SIZE_VARIES?`<td>${selectHtml('size', i, r.size, fieldOptions('size'))}</td>`:''}
+      <td>${selectHtml('material', i, r.material, fieldOptions('material'))}</td>
       <td><input data-vf="style_id" data-i="${i}" value="${escapeHtml(r.style_id)}" style="width:90px;"></td>
       <td><input data-vf="skuSuffix" data-i="${i}" value="${escapeHtml(r.skuSuffix)}" style="width:90px;"></td>
       <td><input type="number" data-vf="price" data-i="${i}" value="${escapeHtml(r.price)}" style="width:70px;"></td>
@@ -1400,11 +1593,15 @@ function renderVariationTable(){
     inp.addEventListener(evt, ()=>{
       const i = parseInt(inp.dataset.i,10), field = inp.dataset.vf;
       variationRows[i][field] = inp.value;
-      // Picking a color for a row that has no SKU suffix yet — suggest one from the color name
-      // so "SKU suffix is required" doesn't surprise anyone after just choosing a color.
-      if(field==='color' && inp.value && !variationRows[i].skuSuffix.trim()){
-        variationRows[i].skuSuffix = inp.value.toUpperCase().replace(/[^A-Z0-9]+/g,'_');
-        renderVariationTable();
+      // Picking a color (and size, when it varies) for a row with no SKU suffix yet — suggest
+      // one from those so "SKU suffix is required" doesn't surprise anyone, and so two rows that
+      // only differ by size don't collide on the same suggested suffix.
+      if((field==='color' || field==='size') && !variationRows[i].skuSuffix.trim()){
+        const parts = [variationRows[i].color, variationRows[i].size].filter(Boolean);
+        if(parts.length){
+          variationRows[i].skuSuffix = parts.join('_').toUpperCase().replace(/[^A-Z0-9]+/g,'_');
+          renderVariationTable();
+        }
       }
     });
   });
@@ -1449,7 +1646,7 @@ document.getElementById('modeVariationBtn').addEventListener('click', ()=>{
   if(mode==='variations') return;
   mode = 'variations';
   clearStaleDescriptionOnModeSwitch();
-  if(!form.group_id) { form.group_id = V_GROUP_ID[0]; }
+  if(!form.group_id) { form.group_id = fieldOptions('group_id')[0]; }
   if(!variationRows.length) variationRows.push(newVariationRow());
   // These become fallback defaults once each variation row can carry its own photos — collapse
   // them out of the way by default so the per-row Variations table (the primary place to set
@@ -1529,6 +1726,7 @@ function validateVariations(){
   variationRows.forEach((r,i)=>{
     const label = `Variation ${i+1}`;
     if(!r.color.trim()) errors.push(`${label}: Color is required.`);
+    if(SIZE_VARIES && !(r.size||'').trim()) errors.push(`${label}: Size is required.`);
     if(!r.material.trim()) errors.push(`${label}: Material is required.`);
     if(!r.price.toString().trim()) errors.push(`${label}: Price is required.`);
     if(!r.mrp.toString().trim()) errors.push(`${label}: MRP is required.`);
@@ -1602,6 +1800,7 @@ document.getElementById('saveProductBtn').addEventListener('click', ()=>{
     record.color = r.color; record.material = r.material; record.style_id = r.style_id;
     record.price = r.price; record.return_price = r.return_price; record.mrp = r.mrp;
     record.weight = r.weight; record.inventory = r.inventory;
+    if(SIZE_VARIES) record.size = r.size;
     products.push(record);
   });
   showToast(`Added ${variationRows.length} variation${variationRows.length===1?'':'s'} to catalog list`);
@@ -1623,6 +1822,7 @@ document.getElementById('cancelEditBtn').addEventListener('click', ()=>{
 });
 
 document.getElementById('loadSampleBtn').addEventListener('click', ()=>{
+  if(ACTIVE_CATEGORY !== 'keychains'){ showToast('No example available for this category yet'); return; }
   editingIndex = null;
   mode = 'single';
   variationRows = [];
@@ -1835,9 +2035,9 @@ async function runGuidedWizard(){
   const q = askWizardQuestion; // shorthand
   form.title = await q({question:"What's the product name?", type:'text', required:true});
   if(wizardAborted) return;
-  form.generic_name = (await q({question:'Generic Name?', type:'chips', options:V_GENERIC_NAME, required:true})) || form.generic_name;
+  form.generic_name = (await q({question:'Generic Name?', type:'chips', options:fieldOptions('generic_name'), required:true})) || form.generic_name;
   if(wizardAborted) return;
-  form.group_id = (await q({question:'Group ID? (only needed if this listing should be grouped with others)', type:'chips', options:V_GROUP_ID, required:false})) || '';
+  form.group_id = (await q({question:'Group ID? (only needed if this listing should be grouped with others)', type:'chips', options:fieldOptions('group_id'), required:false})) || '';
   if(wizardAborted) return;
   form.brand_name = (await q({question:'Brand Name? (your own store/brand — optional)', type:'text', required:false, suggested: form.brand_name})) || '';
   if(wizardAborted) return;
@@ -1852,19 +2052,26 @@ async function runGuidedWizard(){
     if(wizardAborted) return;
     const count = Math.max(2, parseInt(countStr,10) || 2);
     const used = new Set();
-    for(let i=0;i<count;i++){
-      const c = await q({question:`Color #${i+1} of ${count}?`, type:'chips', options:V_COLOR.filter(x=>!used.has(x)), required:true});
-      if(wizardAborted) return;
-      used.add(c);
-      pendingColors.push(c);
+    if(fieldByKey('color')){
+      for(let i=0;i<count;i++){
+        const c = await q({question:`Color #${i+1} of ${count}?`, type:'chips', options:fieldOptions('color').filter(x=>!used.has(x)), required:true});
+        if(wizardAborted) return;
+        used.add(c);
+        pendingColors.push(c);
+      }
     }
-  } else {
-    form.color = await q({question:'Color?', type:'chips', options:V_COLOR, required:true});
+  } else if(fieldByKey('color')){
+    form.color = await q({question:'Color?', type:'chips', options:fieldOptions('color'), required:true});
     if(wizardAborted) return;
   }
 
-  form.material = (await q({question:'Material?' + (isVariation?' (applied to every color — you can override a specific one later in the Variations table)':''), type:'chips', options:V_MATERIAL, required:true})) || form.material;
-  if(wizardAborted) return;
+  // Material/Shape/Type are Keychains' own category-attribute field names — a different
+  // category's template may not have fields keyed exactly like this, so each is skipped
+  // rather than asked (and dead-ending with no valid answer) when the field doesn't exist.
+  if(fieldByKey('material')){
+    form.material = (await q({question:'Material?' + (isVariation?' (applied to every color — you can override a specific one later in the Variations table)':''), type:'chips', options:fieldOptions('material'), required:true})) || form.material;
+    if(wizardAborted) return;
+  }
   form.price = await q({question:'Meesho Price (₹)? — your normal selling price', type:'text', numberType:true, required:true});
   if(wizardAborted) return;
   const suggestedReturn = form.price && !isNaN(parseFloat(form.price)) ? Math.max(0, parseFloat(form.price)-12).toString() : '';
@@ -1872,28 +2079,84 @@ async function runGuidedWizard(){
   if(wizardAborted) return;
   form.mrp = await q({question:'MRP (₹)? — must be ≥ Meesho Price', type:'text', numberType:true, required:true});
   if(wizardAborted) return;
-  form.gst = (await q({question:'GST %?', type:'chips', options:V_GST, required:true})) || form.gst;
-  if(wizardAborted) return;
-  form.hsn = (await q({question:'HSN ID?', type:'chips', options:V_HSN, required:true})) || form.hsn;
-  if(wizardAborted) return;
-  form.weight = await q({question:'Net Weight (grams)?', type:'text', numberType:true, required:true});
-  if(wizardAborted) return;
-  form.inventory = (await q({question:'Inventory (stock count)?', type:'chips', options:['10','20','50','100'], required:true, allowCustom:true, numberType:true})) || form.inventory;
-  if(wizardAborted) return;
-  form.net_quantity = (await q({question:'Net Quantity (units per pack)?', type:'chips', options:V_NET_QUANTITY, required:true})) || form.net_quantity;
-  if(wizardAborted) return;
-  form.dimension_unit = (await q({question:'Dimension Unit?', type:'chips', options:V_DIMENSION_UNIT, required:true})) || form.dimension_unit;
-  if(wizardAborted) return;
-  form.height = await q({question:`Product Height/Thickness (${form.dimension_unit})?`, type:'text', numberType:true, required:true});
-  if(wizardAborted) return;
-  form.length = await q({question:`Product Length (${form.dimension_unit})?`, type:'text', numberType:true, required:true});
-  if(wizardAborted) return;
-  form.width = await q({question:`Product Width (${form.dimension_unit})?`, type:'text', numberType:true, required:true});
-  if(wizardAborted) return;
-  form.shape = await q({question:'Shape?', type:'chips', options:V_SHAPE, required:true});
-  if(wizardAborted) return;
-  form.type = await q({question:'Type?', type:'chips', options:V_TYPE, required:true});
-  if(wizardAborted) return;
+  if(fieldByKey('gst')){
+    form.gst = (await q({question:'GST %?', type:'chips', options:fieldOptions('gst'), required:true})) || form.gst;
+    if(wizardAborted) return;
+  }
+  if(fieldByKey('hsn')){
+    form.hsn = (await q({question:'HSN ID?', type:'chips', options:fieldOptions('hsn'), required:true})) || form.hsn;
+    if(wizardAborted) return;
+  }
+  if(fieldByKey('weight')){
+    form.weight = await q({question:'Net Weight (grams)?', type:'text', numberType:true, required:true});
+    if(wizardAborted) return;
+  }
+  if(fieldByKey('inventory')){
+    form.inventory = (await q({question:'Inventory (stock count)?', type:'chips', options:['10','20','50','100'], required:true, allowCustom:true, numberType:true})) || form.inventory;
+    if(wizardAborted) return;
+  }
+  if(fieldByKey('net_quantity')){
+    form.net_quantity = (await q({question:'Net Quantity (units per pack)?', type:'chips', options:fieldOptions('net_quantity'), required:true})) || form.net_quantity;
+    if(wizardAborted) return;
+  }
+  // Height/Length/Width/Dimension-Unit are Keychains' own way of expressing size — some
+  // categories combine them into one field (e.g. "Product Dimensions (L x B x H)") or use
+  // different names (e.g. "Product Breadth" instead of Width) entirely; those get picked up by
+  // the generic pass below instead of being asked here under the wrong name.
+  if(fieldByKey('dimension_unit')){
+    form.dimension_unit = (await q({question:'Dimension Unit?', type:'chips', options:fieldOptions('dimension_unit'), required:true})) || form.dimension_unit;
+    if(wizardAborted) return;
+  }
+  // Some categories express these as a dropdown of hundreds of specific numeric values rather
+  // than free numeric input (e.g. every 0.5cm step) — snap the typed answer to the nearest valid
+  // one so it stays a legal value for that field, same treatment as the generic pass below.
+  if(fieldByKey('height')){
+    let val = await q({question:`Product Height/Thickness${form.dimension_unit?` (${form.dimension_unit})`:''}?`, type:'text', numberType:true, required:true});
+    if(wizardAborted) return;
+    if(val && isLargeNumericSelect(fieldByKey('height'))) val = closestNumericOption(val, fieldOptions('height')) || val;
+    form.height = val;
+  }
+  if(fieldByKey('length')){
+    let val = await q({question:`Product Length${form.dimension_unit?` (${form.dimension_unit})`:''}?`, type:'text', numberType:true, required:true});
+    if(wizardAborted) return;
+    if(val && isLargeNumericSelect(fieldByKey('length'))) val = closestNumericOption(val, fieldOptions('length')) || val;
+    form.length = val;
+  }
+  if(fieldByKey('width')){
+    let val = await q({question:`Product Width${form.dimension_unit?` (${form.dimension_unit})`:''}?`, type:'text', numberType:true, required:true});
+    if(wizardAborted) return;
+    if(val && isLargeNumericSelect(fieldByKey('width'))) val = closestNumericOption(val, fieldOptions('width')) || val;
+    form.width = val;
+  }
+  if(fieldByKey('shape')){
+    form.shape = await q({question:'Shape?', type:'chips', options:fieldOptions('shape'), required:true});
+    if(wizardAborted) return;
+  }
+  if(fieldByKey('type')){
+    form.type = await q({question:'Type?', type:'chips', options:fieldOptions('type'), required:true});
+    if(wizardAborted) return;
+  }
+
+  // Any other category-specific attribute (e.g. Fabric, Pattern, Neck, Sleeve Length for
+  // clothing) that isn't one of the named questions above — asked generically off the
+  // category's own field definition, so a category other than Keychains isn't left unasked.
+  const ASKED_DETAIL_KEYS = new Set(['size','weight','inventory','color','material','net_quantity','dimension_unit','height','length','width','shape','type','style_id','sku','description']);
+  for(const f of FIELDS.filter(f=>f.group==='details' && !ASKED_DETAIL_KEYS.has(f.key))){
+    // A dropdown of hundreds of specific numeric values (some categories list every 0.5cm
+    // increment) isn't practical as a wall of chips — ask for a plain number and snap it to
+    // the nearest valid option instead.
+    const bigNumeric = isLargeNumericSelect(f);
+    let val = await q({
+      question: `${f.label}?`,
+      type: (f.type==='select' && !bigNumeric) ? 'chips' : 'text',
+      options: (f.type==='select' && !bigNumeric) ? f.options : undefined,
+      numberType: f.type==='number' || bigNumeric,
+      required: !!f.required,
+    });
+    if(wizardAborted) return;
+    if(val && bigNumeric) val = closestNumericOption(val, f.options) || val;
+    form[f.key] = val || form[f.key] || '';
+  }
 
   const suggestedSku = suggestSkuFromTitle(form.title);
   form.sku = (await q({question:'SKU ID? (a suggested one is filled in — edit it or just send)', type:'text', required:true, suggested: suggestedSku})) || suggestedSku;
@@ -1906,7 +2169,7 @@ async function runGuidedWizard(){
 
   if(isVariation){
     mode = 'variations';
-    if(!form.group_id) form.group_id = V_GROUP_ID[0];
+    if(!form.group_id) form.group_id = fieldOptions('group_id')[0];
     variationRows = pendingColors.map(c=>{
       const row = newVariationRow();
       row.color = c;
@@ -1946,7 +2209,7 @@ async function downloadWorkbookFromServer(products, filename, endpoint){
   const resp = await fetch(endpoint || '/api/export-xlsx', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({products, filename}),
+    body: JSON.stringify({products, filename, category: ACTIVE_CATEGORY}),
   });
   if(!resp.ok){
     const errData = await resp.json().catch(()=>({}));
@@ -2007,7 +2270,7 @@ document.getElementById('errorReportFile').addEventListener('change', async ()=>
   try{
     const base64 = await blobToBase64(file);
     const resp = await fetch('/api/import-error-report', {
-      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({fileBase64: base64}),
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({fileBase64: base64, category: ACTIVE_CATEGORY}),
     });
     const data = await resp.json().catch(()=>({}));
     if(!resp.ok) throw new Error(data.error || `Import failed (${resp.status})`);
@@ -2046,7 +2309,7 @@ function loadErrorRowIntoForm(errRow){
   variationRows = [];
   form = Object.assign(emptyForm(), errRow.product);
   const fixedNotes = [];
-  if(form.brand && !V_BRAND.includes(form.brand.trim())){ form.brand=''; fixedNotes.push('cleared invalid Brand'); }
+  if(form.brand && !fieldOptions('brand').includes(form.brand.trim())){ form.brand=''; fixedNotes.push('cleared invalid Brand'); }
   ['main_image','other_image_1','other_image_2','other_image_3'].forEach(k=>{
     if(isPlaceholderImage(form[k])){ form[k]=''; fixedNotes.push(`cleared a broken/placeholder image (${k})`); }
   });
@@ -2065,15 +2328,124 @@ function loadErrorRowIntoForm(errRow){
   showToast('Loaded — review the issue above and re-save');
 }
 
+/* ============ Category switch UI ============ */
+function updateCategoryLabel(){
+  document.getElementById('categoryNameLabel').textContent = ACTIVE_CATEGORY_NAME;
+}
+
+async function renderCategoryList(){
+  const wrap = document.getElementById('categoryList');
+  wrap.innerHTML = '<span class="tag idle">Loading categories…</span>';
+  try{
+    const categories = await listServerCategories();
+    wrap.innerHTML = categories.map(c=>`
+      <button type="button" class="chip-btn" data-switch-category="${escapeHtml(c.slug)}" style="${c.slug===ACTIVE_CATEGORY?'background:var(--pink);color:#fff;':''}">${escapeHtml(c.name)}${c.slug===ACTIVE_CATEGORY?' ✓':''}</button>
+    `).join(' ');
+    wrap.querySelectorAll('[data-switch-category]').forEach(btn=>{
+      btn.addEventListener('click', ()=> switchCategory(btn.dataset.switchCategory));
+    });
+  }catch(e){
+    wrap.innerHTML = `<span class="tag bad">${escapeHtml(e.message||'Could not load categories')}</span>`;
+  }
+}
+
+async function switchCategory(slug){
+  if(slug===ACTIVE_CATEGORY){ document.getElementById('categoryPanel').style.display='none'; return; }
+  if(products.length && !confirm(`Switch to a different category? Your current "${ACTIVE_CATEGORY_NAME}" catalog list (${products.length} product${products.length===1?'':'s'}) is saved and will still be here if you switch back.`)) return;
+  const statusEl = document.getElementById('categoryStatus');
+  statusEl.innerHTML = '<span class="tag idle">Loading category…</span>';
+  try{
+    const schema = await fetchCategorySchema(slug);
+    ACTIVE_CATEGORY = slug;
+    localStorage.setItem('meesho_active_category', slug);
+    applySchema(schema);
+    editingIndex = null; mode = 'single'; variationRows = [];
+    loadState();
+    form = emptyForm();
+    updateCategoryLabel();
+    updateQuickFillPlaceholder();
+    renderSettings();
+    renderForm();
+    renderList();
+    document.getElementById('categoryPanel').style.display = 'none';
+    statusEl.innerHTML = '';
+    showToast(`Switched to ${ACTIVE_CATEGORY_NAME}`);
+  }catch(e){
+    statusEl.innerHTML = `<span class="tag bad">${escapeHtml(e.message||'Could not switch category')}</span>`;
+  }
+}
+
+document.getElementById('changeCategoryBtn').addEventListener('click', ()=>{
+  const panel = document.getElementById('categoryPanel');
+  const opening = panel.style.display === 'none';
+  panel.style.display = opening ? 'block' : 'none';
+  if(opening) renderCategoryList();
+});
+
+let pendingCategoryFile = null;
+document.getElementById('categoryFileBtn').addEventListener('click', ()=> document.getElementById('categoryFile').click());
+document.getElementById('categoryFile').addEventListener('change', ()=>{
+  pendingCategoryFile = document.getElementById('categoryFile').files[0] || null;
+  const nameInput = document.getElementById('categoryNameInput');
+  if(pendingCategoryFile && !nameInput.value.trim()){
+    nameInput.value = pendingCategoryFile.name.replace(/\.xlsx$/i,'').replace(/[_-]?fill this/i,'').trim();
+  }
+  document.getElementById('categoryUploadBtn').disabled = !pendingCategoryFile;
+});
+document.getElementById('categoryUploadBtn').addEventListener('click', async ()=>{
+  const statusEl = document.getElementById('categoryStatus');
+  if(!IS_SERVED){ statusEl.innerHTML = `<span class="tag bad">${escapeHtml(describeAIError())}</span>`; return; }
+  if(!pendingCategoryFile){ statusEl.innerHTML = '<span class="tag bad">Choose a template .xlsx first.</span>'; return; }
+  const name = document.getElementById('categoryNameInput').value.trim();
+  if(!name){ statusEl.innerHTML = '<span class="tag bad">Give this category a name.</span>'; return; }
+  if(products.length && !confirm(`Switch to "${name}"? Your current "${ACTIVE_CATEGORY_NAME}" catalog list (${products.length} product${products.length===1?'':'s'}) is saved and will still be here if you switch back.`)) return;
+  statusEl.innerHTML = '<span class="tag idle">Parsing template…</span>';
+  try{
+    const fileBase64 = await blobToBase64(pendingCategoryFile);
+    const resp = await fetch('/api/categories', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({fileBase64, name}),
+    });
+    const data = await resp.json().catch(()=>({}));
+    if(!resp.ok) throw new Error(data.error || `Could not parse this template (${resp.status})`);
+    ACTIVE_CATEGORY = data.slug;
+    localStorage.setItem('meesho_active_category', data.slug);
+    applySchema(data.schema);
+    editingIndex = null; mode = 'single'; variationRows = [];
+    loadState();
+    form = emptyForm();
+    updateCategoryLabel();
+    updateQuickFillPlaceholder();
+    renderSettings();
+    renderForm();
+    renderList();
+    document.getElementById('categoryPanel').style.display = 'none';
+    document.getElementById('categoryFile').value = '';
+    document.getElementById('categoryNameInput').value = '';
+    pendingCategoryFile = null;
+    document.getElementById('categoryUploadBtn').disabled = true;
+    statusEl.innerHTML = '';
+    showToast(`"${ACTIVE_CATEGORY_NAME}" is ready — ${FIELDS.length} fields detected`);
+  }catch(err){
+    statusEl.innerHTML = `<div class="errbox">${escapeHtml(err.message||'Could not parse this template')}</div>`;
+  }
+});
+
 /* ============ Init ============ */
 document.getElementById('quickFillBtn').addEventListener('click', enhanceFreeTextWithAI);
 document.getElementById('voiceBtn').addEventListener('click', toggleVoiceInput);
-loadProfile();
-loadState();
-form = emptyForm();
-renderSettings();
-renderForm();
-renderList();
+(async function initApp(){
+  await bootstrapCategory();
+  updateCategoryLabel();
+  updateQuickFillPlaceholder();
+  loadProfile();
+  loadState();
+  form = emptyForm();
+  renderSettings();
+  renderForm();
+  renderList();
+})();
 </script>
 </body>
 </html>
