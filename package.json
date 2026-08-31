@@ -1,6 +1,16 @@
 {
+  "name": "meesho-catalog-builder",
+  "version": "1.0.0",
+  "description": "Meesho Keychain & Multi-Category Catalog Builder",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node server.js",
+    "build": "node -e 'console.log(\"Build complete\")'",
+    "start": "node server.js"
+  },
   "dependencies": {
     "exceljs": "^4.4.0",
     "jszip": "^3.10.1"
   }
 }
+

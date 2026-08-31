@@ -3,142 +3,270 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Meesho Keychain Catalog Builder</title>
+<title>Meesho Catalog Builder</title>
+<meta name="description" content="Create, enhance with AI, and export Meesho catalog listings directly to Excel spreadsheets matching Meesho category templates.">
+<meta property="og:title" content="Meesho Catalog Builder">
+<meta property="og:description" content="Create, enhance with AI, and export Meesho catalog listings directly to Excel spreadsheets matching Meesho category templates.">
 <style>
+  @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
   :root{
-    --pink:#9F1D6B; --pink-dark:#7A1553; --pink-light:#FCE9F2;
-    --bg:#F6F5F8; --card:#FFFFFF; --text:#211F26; --muted:#69636F;
-    --border:#E3DEE6; --ok:#1E8E3E; --warn:#B45309; --err:#C0392B;
-    --radius:12px;
+    --pink:#8D155D; --pink-dark:#6B0E46; --pink-light:#FDF2F7; --pink-border:#F3D1E4;
+    --bg:#F8F9FB; --card:#FFFFFF; --card-alt:#FBFBFC; --text:#1C1917; --muted:#64748B;
+    --border:#E2E8F0; --border-focus:#8D155D; --ok:#16A34A; --ok-bg:#F0FDF4; --ok-border:#BBF7D0;
+    --warn:#D97706; --warn-bg:#FFFBEB; --warn-border:#FDE68A;
+    --err:#DC2626; --err-bg:#FEF2F2; --err-border:#FECACA;
+    --radius:14px; --radius-sm:8px; --radius-pill:999px;
+    --shadow-sm:0 1px 2px 0 rgba(0,0,0,0.04);
+    --shadow-md:0 4px 14px -2px rgba(0,0,0,0.06), 0 2px 6px -1px rgba(0,0,0,0.03);
   }
   @media (prefers-color-scheme: dark){
-    :root{ --bg:#18151B; --card:#221E27; --text:#F1EDF4; --muted:#B0A9BA; --border:#37313E; --pink-light:#3A1B2C; }
+    :root{
+      --bg:#0F172A; --card:#1E293B; --card-alt:#182234; --text:#F8FAFC; --muted:#94A3B8;
+      --border:#334155; --border-focus:#E879F9; --pink:#A21CAF; --pink-dark:#86198F;
+      --pink-light:#2E1065; --pink-border:#4C1D95;
+      --ok-bg:#052E16; --ok-border:#166534; --warn-bg:#451A03; --warn-border:#78350F;
+      --err-bg:#450A0A; --err-border:#7F1D1D;
+    }
   }
   *{box-sizing:border-box;}
-  body{margin:0;background:var(--bg);color:var(--text);font-family:'Segoe UI',Roboto,Arial,sans-serif;}
-  header{background:linear-gradient(135deg,var(--pink),var(--pink-dark));color:#fff;padding:22px 28px;}
-  header h1{margin:0;font-size:22px;}
-  header p{margin:4px 0 0;font-size:13.5px;opacity:.92;}
-  .wrap{max-width:1180px;margin:0 auto;padding:20px 20px 60px;}
-  .tabs{display:flex;gap:8px;margin:18px 0;flex-wrap:wrap;}
-  .tab{padding:9px 16px;border-radius:999px;border:1px solid var(--border);background:var(--card);cursor:pointer;font-size:14px;font-weight:600;color:var(--muted);}
-  .tab.active{background:var(--pink);border-color:var(--pink);color:#fff;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;-webkit-font-smoothing:antialiased;}
+  
+  /* Header */
+  header{
+    background:linear-gradient(135deg, #8D155D 0%, #580B39 100%);
+    color:#fff;padding:26px 32px;box-shadow:var(--shadow-md);
+  }
+  .header-content{max-width:1180px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;}
+  .header-titles h1{margin:0;font-size:22px;font-weight:800;letter-spacing:-0.02em;display:flex;align-items:center;gap:10px;}
+  .header-titles p{margin:6px 0 0;font-size:13.5px;opacity:.92;max-width:680px;line-height:1.5;}
+  .header-badge{background:rgba(255,255,255,0.18);backdrop-filter:blur(6px);padding:6px 14px;border-radius:var(--radius-pill);font-size:12px;font-weight:600;display:inline-flex;align-items:center;gap:6px;}
+
+  .wrap{max-width:1180px;margin:0 auto;padding:24px 20px 70px;}
+
+  /* Main Navigation Tabs */
+  .tabs{display:flex;gap:10px;margin:20px 0;flex-wrap:wrap;background:var(--card-alt);padding:6px;border-radius:16px;border:1px solid var(--border);width:fit-content;}
+  .tab{padding:10px 20px;border-radius:12px;border:none;background:transparent;cursor:pointer;font-size:14px;font-weight:700;color:var(--muted);transition:all .15s ease;display:inline-flex;align-items:center;gap:8px;}
+  .tab:hover{color:var(--text);background:rgba(0,0,0,0.03);}
+  .tab.active{background:var(--pink);color:#fff;box-shadow:0 2px 8px rgba(141,21,93,0.3);}
+  .tab .tab-badge{background:rgba(255,255,255,0.25);color:#fff;padding:2px 8px;border-radius:var(--radius-pill);font-size:11px;font-weight:700;}
+  .tab:not(.active) .tab-badge{background:var(--border);color:var(--muted);}
+
   .panel{display:none;}
   .panel.active{display:block;}
-  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:20px 22px;margin-bottom:16px;}
-  .card h2{margin:0 0 4px;font-size:16px;}
-  .card .sub{color:var(--muted);font-size:12.5px;margin:0 0 16px;}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px 18px;}
-  .field{display:flex;flex-direction:column;gap:5px;}
-  .field label{font-size:13px;font-weight:600;}
-  .field label .req{color:var(--err);}
-  .field .help{font-size:11.5px;color:var(--muted);}
-  input,select,textarea{
-    font:inherit;padding:9px 10px;border-radius:8px;border:1px solid var(--border);
-    background:var(--bg);color:var(--text);width:100%;
+  
+  /* Cards */
+  .card{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:24px 26px;margin-bottom:20px;box-shadow:var(--shadow-sm);}
+  .card-header-bar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:18px;border-bottom:1px solid var(--border);padding-bottom:14px;}
+  .card h2{margin:0 0 4px;font-size:17px;font-weight:700;letter-spacing:-0.01em;}
+  .card .sub{color:var(--muted);font-size:13px;margin:0 0 16px;line-height:1.55;}
+  
+  /* Step Indicator Banner */
+  .step-header{display:flex;align-items:center;gap:12px;margin:0 0 8px;}
+  .step-num{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:var(--pink);color:#fff;font-size:13px;font-weight:800;}
+  .step-title{font-size:15.5px;font-weight:700;color:var(--text);margin:0;}
+  
+  /* Form Layout */
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:16px 20px;}
+  .field{display:flex;flex-direction:column;gap:6px;}
+  .field label{font-size:13px;font-weight:600;color:var(--text);display:flex;align-items:center;justify-content:space-between;}
+  .field label .label-title{display:inline-flex;align-items:center;gap:4px;}
+  .field label .req{color:var(--err);font-weight:700;}
+  .field .help{font-size:12px;color:var(--muted);line-height:1.45;}
+  
+  /* Info Tooltip */
+  .info-tip{position:relative;display:inline-flex;align-items:center;justify-content:center;cursor:help;outline:none;vertical-align:middle;margin-left:6px;}
+  .info-icon{
+    display:inline-flex;align-items:center;justify-content:center;width:17px;height:17px;border-radius:50%;
+    background:var(--pink-light);color:var(--pink);border:1px solid var(--pink-border);
+    font-size:11px;font-weight:800;font-family:system-ui,-apple-system,sans-serif;font-style:italic;line-height:1;
+    transition:all .15s ease;user-select:none;
   }
-  textarea{min-height:80px;resize:vertical;}
-  input:focus,select:focus,textarea:focus{outline:2px solid var(--pink);outline-offset:1px;}
-  .field.invalid input,.field.invalid select,.field.invalid textarea{border-color:var(--err);}
-  .counter{font-size:11px;color:var(--muted);text-align:right;}
-  .row-inline{display:flex;gap:6px;}
+  .info-tip:hover .info-icon, .info-tip:focus .info-icon{
+    background:var(--pink);color:#fff;border-color:var(--pink);transform:scale(1.1);
+  }
+  .info-tooltip{
+    visibility:hidden;opacity:0;position:absolute;bottom:calc(100% + 8px);left:50%;
+    transform:translateX(-50%) translateY(4px);width:max-content;max-width:270px;
+    background:#0F172A;color:#F8FAFC;padding:8px 12px;border-radius:8px;
+    font-size:12px;font-weight:500;font-style:normal;line-height:1.45;text-align:left;
+    box-shadow:0 10px 25px -4px rgba(0,0,0,0.3);z-index:150;pointer-events:none;
+    transition:opacity .18s ease, transform .18s ease, visibility .18s ease;white-space:normal;
+  }
+  .info-tooltip::after{
+    content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);
+    border-width:5px 5px 0 5px;border-style:solid;border-color:#0F172A transparent transparent transparent;
+  }
+  .info-tip:hover .info-tooltip, .info-tip:focus .info-tooltip{
+    visibility:visible;opacity:1;transform:translateX(-50%) translateY(0);
+  }
+  
+  /* Inputs */
+  input,select,textarea{
+    font:inherit;font-size:13.5px;padding:10px 12px;border-radius:var(--radius-sm);
+    border:1px solid var(--border);background:var(--bg);color:var(--text);width:100%;
+    transition:border-color .15s ease, box-shadow .15s ease;
+  }
+  /* Remove number input spinners / auto increase-decrease arrows */
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+  input[type=number] {
+    -moz-appearance: textfield;
+    appearance: textfield;
+  }
+  textarea{min-height:90px;resize:vertical;line-height:1.5;}
+  input:focus,select:focus,textarea:focus{outline:none;border-color:var(--border-focus);box-shadow:0 0 0 3px rgba(141,21,93,0.12);}
+  .field.invalid input,.field.invalid select,.field.invalid textarea{border-color:var(--err);background:var(--err-bg);}
+  .counter{font-size:11.5px;color:var(--muted);text-align:right;}
+  .row-inline{display:flex;gap:8px;align-items:center;}
   .row-inline input{flex:1;}
-  .btn{cursor:pointer;border:none;border-radius:8px;padding:9px 15px;font-size:13.5px;font-weight:600;}
-  .btn-primary{background:var(--pink);color:#fff;}
+
+  /* Buttons */
+  .btn{
+    cursor:pointer;border:none;border-radius:var(--radius-sm);padding:10px 18px;
+    font-size:13.5px;font-weight:700;transition:all .15s ease;display:inline-flex;
+    align-items:center;justify-content:center;gap:6px;white-space:nowrap;
+  }
+  .btn-primary{background:var(--pink);color:#fff;box-shadow:0 1px 3px rgba(141,21,93,0.25);}
+  .btn-primary:hover:not(:disabled){background:var(--pink-dark);transform:translateY(-1px);box-shadow:0 3px 8px rgba(141,21,93,0.3);}
   .btn-primary:disabled{opacity:.45;cursor:not-allowed;}
-  .btn-outline{background:transparent;border:1px solid var(--border);color:var(--text);}
-  .btn-ghost{background:transparent;color:var(--pink);border:1px solid var(--pink);}
-  .btn-sm{padding:5px 10px;font-size:12px;}
-  .btn-danger{background:transparent;border:1px solid var(--err);color:var(--err);}
-  .actions{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap;align-items:center;}
-  .errbox{background:#FDECEA;border:1px solid var(--err);color:#7A1F14;border-radius:8px;padding:10px 14px;font-size:13px;margin-top:12px;}
-  @media (prefers-color-scheme: dark){ .errbox{background:#3A1712;color:#F5B7AE;} }
-  .img-preview{display:flex;align-items:center;gap:8px;margin-top:2px;font-size:11.5px;}
-  .img-preview img{width:44px;height:44px;object-fit:cover;border-radius:6px;border:1px solid var(--border);background:var(--bg);}
-  .tag{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;font-weight:600;}
-  .tag.ok{background:#E4F6E9;color:var(--ok);}
-  .tag.bad{background:#FDECEA;color:var(--err);}
-  .tag.idle{background:var(--pink-light);color:var(--pink-dark);}
-  @media (prefers-color-scheme: dark){ .tag.ok{background:#12351E;} .tag.bad{background:#3A1712;} }
+  .btn-outline{background:var(--card);border:1px solid var(--border);color:var(--text);}
+  .btn-outline:hover{background:var(--bg);border-color:var(--muted);}
+  .btn-ghost{background:transparent;color:var(--pink);border:1px solid var(--pink-border);}
+  .btn-ghost:hover{background:var(--pink-light);}
+  .btn-sm{padding:7px 12px;font-size:12.5px;border-radius:6px;}
+  .btn-danger{background:transparent;border:1px solid var(--err-border);color:var(--err);}
+  .btn-danger:hover{background:var(--err-bg);}
+  .actions{display:flex;gap:12px;margin-top:22px;flex-wrap:wrap;align-items:center;}
+  
+  /* Alert / Error Boxes */
+  .errbox{background:var(--err-bg);border:1px solid var(--err-border);color:var(--err);border-radius:var(--radius-sm);padding:12px 16px;font-size:13px;line-height:1.5;margin-top:14px;}
+  .tipbox{background:var(--ok-bg);border:1px solid var(--ok-border);color:#15803D;border-radius:var(--radius-sm);padding:12px 16px;font-size:13px;line-height:1.5;margin-top:10px;}
+
+  /* Image Preview */
+  .img-preview{display:flex;align-items:center;gap:10px;margin-top:4px;font-size:12px;}
+  .img-preview img{width:46px;height:46px;object-fit:cover;border-radius:8px;border:1px solid var(--border);background:var(--bg);box-shadow:var(--shadow-sm);}
+  
+  /* Tags & Badges */
+  .tag{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:var(--radius-pill);font-size:11.5px;font-weight:700;}
+  .tag.ok{background:var(--ok-bg);border:1px solid var(--ok-border);color:var(--ok);}
+  .tag.bad{background:var(--err-bg);border:1px solid var(--err-border);color:var(--err);}
+  .tag.idle{background:var(--pink-light);border:1px solid var(--pink-border);color:var(--pink);}
+  
+  /* Tables */
   table{width:100%;border-collapse:collapse;font-size:13px;}
-  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--border);}
-  th{color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.03em;}
+  th,td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--border);}
+  th{color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.04em;font-weight:700;background:var(--card-alt);}
   tr:hover td{background:var(--pink-light);}
-  .empty{color:var(--muted);font-size:13.5px;padding:20px 4px;text-align:center;}
-  .pillbar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;margin-bottom:14px;}
-  .count-pill{background:var(--pink-light);color:var(--pink-dark);font-weight:700;font-size:13px;padding:6px 14px;border-radius:999px;}
-  .guide h3{font-size:14.5px;margin:18px 0 6px;}
+  .empty{color:var(--muted);font-size:14px;padding:36px 10px;text-align:center;}
+  .pillbar{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;margin-bottom:16px;}
+  .count-pill{background:var(--pink-light);color:var(--pink-dark);font-weight:800;font-size:13px;padding:7px 16px;border-radius:var(--radius-pill);border:1px solid var(--pink-border);}
+  
+  /* Guide / Source Box */
+  .guide h3{font-size:15px;margin:20px 0 6px;}
   .guide h3:first-child{margin-top:0;}
-  .guide p, .guide li{font-size:13.5px;line-height:1.55;color:var(--text);}
-  .guide ul{margin:6px 0;padding-left:20px;}
-  .guide a{color:var(--pink);}
-  .source-box{display:flex;justify-content:space-between;align-items:center;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin:8px 0;}
+  .guide p, .guide li{font-size:13.5px;line-height:1.6;color:var(--text);}
+  .guide ul{margin:8px 0;padding-left:22px;}
+  .guide a{color:var(--pink);text-decoration:underline;}
+  .source-box{display:flex;justify-content:space-between;align-items:center;background:var(--card-alt);border:1px solid var(--border);border-radius:10px;padding:12px 16px;margin:10px 0;}
   .source-box .name{font-weight:700;font-size:13.5px;}
   .source-box .note{font-size:12px;color:var(--muted);}
-  .badge-rec{background:var(--ok);color:#fff;font-size:10.5px;padding:2px 7px;border-radius:999px;font-weight:700;margin-left:6px;}
-  footer{text-align:center;color:var(--muted);font-size:11.5px;padding:24px 0 10px;}
-  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--pink-dark);color:#fff;padding:11px 20px;border-radius:999px;font-size:13.5px;box-shadow:0 6px 20px rgba(0,0,0,.2);opacity:0;pointer-events:none;transition:opacity .25s;z-index:50;}
-  .toast.show{opacity:1;}
-  .icon-btn{background:none;border:none;cursor:pointer;color:var(--muted);font-size:15px;padding:2px 6px;}
-  .icon-btn:hover{color:var(--pink);}
-  .seg{display:flex;gap:8px;margin:4px 0 20px;}
-  .seg-btn{padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:var(--card);cursor:pointer;font-size:13px;font-weight:600;color:var(--muted);}
-  .seg-btn.active{background:var(--pink-light);border-color:var(--pink);color:var(--pink-dark);}
+  .badge-rec{background:var(--ok);color:#fff;font-size:10.5px;padding:3px 8px;border-radius:var(--radius-pill);font-weight:700;margin-left:6px;}
+  footer{text-align:center;color:var(--muted);font-size:12px;padding:30px 0 16px;line-height:1.6;}
+  
+  /* Toast Notification */
+  .toast{position:fixed;bottom:26px;left:50%;transform:translateX(-50%);background:#1E293B;color:#fff;padding:12px 24px;border-radius:var(--radius-pill);font-size:13.5px;font-weight:600;box-shadow:0 10px 25px -5px rgba(0,0,0,0.3);opacity:0;pointer-events:none;transition:opacity .25s ease, transform .25s ease;z-index:100;}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(-4px);}
+  
+  /* Icon buttons & Segment toggle */
+  .icon-btn{background:var(--card);border:1px solid var(--border);border-radius:6px;cursor:pointer;color:var(--muted);font-size:13px;padding:5px 8px;transition:all .15s ease;}
+  .icon-btn:hover{color:var(--pink);border-color:var(--pink-border);background:var(--pink-light);}
+  .seg{display:flex;gap:10px;margin:8px 0 20px;}
+  .seg-btn{flex:1;max-width:320px;padding:12px 16px;border-radius:10px;border:1px solid var(--border);background:var(--card);cursor:pointer;font-size:13.5px;font-weight:700;color:var(--muted);transition:all .15s ease;text-align:center;}
+  .seg-btn.active{background:var(--pink-light);border-color:var(--pink);color:var(--pink-dark);box-shadow:0 0 0 1px var(--pink);}
+
+  /* Step Card Container */
+  .step-card{background:linear-gradient(180deg, var(--pink-light) 0%, var(--card) 100%);border:1px solid var(--pink-border);border-radius:var(--radius);padding:20px 22px;margin-bottom:16px;}
+  
+  /* Accordion Sections */
+  .accordion-section{border:1px solid var(--border);border-radius:12px;margin:16px 0;overflow:hidden;background:var(--card);}
+  .accordion-header{width:100%;display:flex;justify-content:space-between;align-items:center;background:var(--card-alt);border:none;padding:14px 18px;cursor:pointer;font-size:14.5px;font-weight:700;color:var(--pink-dark);text-align:left;transition:background .15s ease;}
+  .accordion-header:hover{background:var(--pink-light);}
+  .accordion-section > .grid{padding:18px;}
+  .grid-3{grid-template-columns:repeat(3,1fr);}
+  @media (max-width:768px){ .grid-3{grid-template-columns:1fr;} }
+  
+  /* Guided Wizard Dialogue */
+  #wizardLog{max-height:340px;overflow-y:auto;padding:8px;display:flex;flex-direction:column;gap:10px;}
+  .wizard-bubble{max-width:85%;padding:10px 14px;border-radius:14px;font-size:13.5px;line-height:1.5;white-space:pre-wrap;}
+  .wizard-bot{align-self:flex-start;background:var(--card);border:1px solid var(--border);border-bottom-left-radius:4px;box-shadow:var(--shadow-sm);}
+  .wizard-user{align-self:flex-end;background:var(--pink);color:#fff;border-bottom-right-radius:4px;}
+  #wizardInputArea{margin-top:12px;}
+  .wizard-chips{display:flex;flex-wrap:wrap;gap:8px;}
+  .chip-btn{border:1px solid var(--pink-border);background:var(--card);color:var(--pink-dark);border-radius:var(--radius-pill);padding:6px 14px;font-size:13px;font-weight:600;cursor:pointer;transition:all .15s ease;}
+  .chip-btn:hover{background:var(--pink);color:#fff;border-color:var(--pink);}
+  .chip-skip{border-style:dashed;background:transparent;color:var(--muted);}
+  
+  /* Quick Fill Hints */
+  #quickFillHints{font-size:13px;line-height:1.9;color:var(--text);}
+  .field-hint-item{white-space:nowrap;display:inline-flex;align-items:center;}
+  .dropdown-icon{position:relative;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:4px;border-radius:50%;background:var(--pink-light);color:var(--pink-dark);font-size:11px;font-weight:800;cursor:help;vertical-align:middle;border:1px solid var(--pink-border);}
+  .dropdown-tooltip{display:none;position:absolute;left:0;top:130%;z-index:80;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 12px;font-size:12px;line-height:1.5;width:250px;max-height:200px;overflow-y:auto;box-shadow:var(--shadow-md);color:var(--text);white-space:normal;text-align:left;}
+  .dropdown-icon:hover .dropdown-tooltip, .dropdown-icon:focus .dropdown-tooltip{display:block;}
+  .field-hint-optional{color:var(--muted);font-size:11.5px;}
+  
   .vtable-wrap{overflow-x:auto;}
   .vtable{min-width:1180px;}
   .vtable input,.vtable select{padding:6px 8px;font-size:12.5px;}
   .vtable td{vertical-align:top;padding:8px 6px;}
   .vtable .img-preview img{width:32px;height:32px;}
-  .img-field .row-inline{align-items:center;}
-  .img-field .btn-sm{white-space:nowrap;}
-  .step-card{background:var(--pink-light);border:1px solid var(--pink);border-radius:var(--radius);padding:16px 18px;margin-bottom:4px;}
-  .accordion-section{border:1px solid var(--border);border-radius:10px;margin:14px 0;overflow:hidden;}
-  .accordion-header{width:100%;display:flex;justify-content:space-between;align-items:center;background:var(--card);border:none;padding:12px 14px;cursor:pointer;font-size:14px;font-weight:700;color:var(--pink-dark);text-align:left;}
-  .accordion-header:hover{background:var(--pink-light);}
-  .accordion-section > .grid{padding:14px;}
-  .grid-3{grid-template-columns:repeat(3,1fr);}
-  @media (max-width:700px){ .grid-3{grid-template-columns:1fr;} }
-  #wizardLog{max-height:320px;overflow-y:auto;padding:4px 2px;display:flex;flex-direction:column;gap:8px;}
-  .wizard-bubble{max-width:82%;padding:8px 12px;border-radius:14px;font-size:13.5px;line-height:1.45;white-space:pre-wrap;}
-  .wizard-bot{align-self:flex-start;background:var(--card);border:1px solid var(--border);border-bottom-left-radius:4px;}
-  .wizard-user{align-self:flex-end;background:var(--pink);color:#fff;border-bottom-right-radius:4px;}
-  #wizardInputArea{margin-top:10px;}
-  .wizard-chips{display:flex;flex-wrap:wrap;gap:6px;}
-  .chip-btn{border:1px solid var(--pink);background:var(--pink-light);color:var(--pink-dark);border-radius:999px;padding:5px 12px;font-size:12.5px;cursor:pointer;}
-  .chip-btn:hover{background:var(--pink);color:#fff;}
-  .chip-skip{border-style:dashed;background:transparent;color:var(--muted);}
-  #quickFillHints{font-size:13px;line-height:1.9;color:var(--text);}
-  .field-hint-item{white-space:nowrap;}
-  .dropdown-icon{position:relative;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;margin-left:2px;border-radius:50%;background:var(--pink-light);color:var(--pink-dark);font-size:10px;cursor:help;vertical-align:middle;}
-  .dropdown-tooltip{display:none;position:absolute;left:0;top:130%;z-index:80;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.5;width:240px;max-height:180px;overflow-y:auto;box-shadow:0 6px 18px rgba(0,0,0,.18);color:var(--text);white-space:normal;text-align:left;}
-  .dropdown-icon:hover .dropdown-tooltip, .dropdown-icon:focus .dropdown-tooltip{display:block;}
-  .field-hint-optional{color:var(--muted);font-size:11.5px;}
 </style>
 </head>
 <body>
 <header>
-  <h1>🔑 Meesho Keychain Catalog Builder</h1>
-  <p>Fill product details once, keep building your catalog list, then export a ready-to-upload Excel matching your real Meesho category template.</p>
+  <div class="header-content">
+    <div class="header-titles">
+      <h1>📦 Meesho Catalog Builder</h1>
+      <p>Fill product details once, build your catalog list easily with AI assistance or step-by-step guidance, and download a ready-to-upload Excel file.</p>
+    </div>
+    <div class="header-badge">
+      <span>✨ Ready for Meesho Upload</span>
+    </div>
+  </div>
 </header>
 <div class="wrap">
   <div class="tabs">
-    <div class="tab active" data-tab="form">➕ Add / Edit Product</div>
-    <div class="tab" data-tab="list">📋 Catalog List <span id="tabCount"></span></div>
-    <div class="tab" data-tab="settings">⚙️ Settings</div>
+    <div class="tab active" data-tab="form">
+      <span>➕</span>
+      <span>Add / Edit Product</span>
+    </div>
+    <div class="tab" data-tab="list">
+      <span>📋</span>
+      <span>Catalog List</span>
+      <span class="tab-badge" id="tabCount">0</span>
+    </div>
+    <div class="tab" data-tab="settings">
+      <span>⚙️</span>
+      <span>Settings & Defaults</span>
+    </div>
   </div>
 
-  <div class="card" style="padding:10px 16px;margin-bottom:14px;">
+  <div class="card" style="padding:12px 18px;margin-bottom:18px;">
     <div class="row-inline" style="justify-content:space-between;">
-      <span class="sub" style="margin:0;">Category: <strong id="categoryNameLabel" style="color:var(--pink-dark);">Keychains</strong></span>
-      <button type="button" class="btn btn-outline btn-sm" id="changeCategoryBtn">🔄 Change Category</button>
+      <span style="font-size:13.5px;color:var(--muted);display:flex;align-items:center;gap:6px;">
+        Current Meesho Category: <strong id="categoryNameLabel" style="color:var(--pink-dark);font-size:14px;background:var(--pink-light);padding:3px 10px;border-radius:var(--radius-pill);border:1px solid var(--pink-border);">Keychains</strong>
+      </span>
+      <button type="button" class="btn btn-outline btn-sm" id="changeCategoryBtn">🔄 Switch Category</button>
     </div>
-    <div id="categoryPanel" style="display:none;margin-top:10px;border-top:1px solid var(--border);padding-top:10px;">
-      <div id="categoryList" style="margin-bottom:10px;"></div>
-      <div class="help" style="font-weight:600;margin-bottom:6px;">Upload a different Meesho category template to build that category's form instead:</div>
+    <div id="categoryPanel" style="display:none;margin-top:14px;border-top:1px solid var(--border);padding-top:14px;">
+      <div id="categoryList" style="margin-bottom:12px;"></div>
+      <div class="help" style="font-weight:600;margin-bottom:8px;color:var(--text);">Upload a different Meesho category template to customize all fields automatically:</div>
       <div class="row-inline" style="gap:8px;flex-wrap:wrap;">
         <input type="file" id="categoryFile" accept=".xlsx" style="display:none;">
         <button type="button" class="btn btn-outline btn-sm" id="categoryFileBtn">📁 Choose template .xlsx</button>
-        <input type="text" id="categoryNameInput" placeholder="Category name (e.g. Sarees)" style="flex:1;min-width:160px;">
+        <input type="text" id="categoryNameInput" placeholder="Category name (e.g. Sarees, Watches)" style="flex:1;min-width:180px;">
         <button type="button" class="btn btn-primary btn-sm" id="categoryUploadBtn" disabled>Parse &amp; Use</button>
       </div>
       <div id="categoryStatus" style="margin-top:8px;"></div>
@@ -148,62 +276,94 @@
   <!-- FORM PANEL -->
   <div class="panel active" id="panel-form">
     <div class="card">
-      <div class="pillbar">
+      <div class="card-header-bar">
         <div>
-          <h2 id="formTitle" style="margin-bottom:2px;">New Product</h2>
-          <p class="sub">Fields marked <span class="req">*</span> are mandatory on Meesho's Keychains template.</p>
+          <h2 id="formTitle">New Product</h2>
+          <p class="sub" style="margin-bottom:0;">Fields with a red asterisk <span class="req">*</span> are required by Meesho's catalog specifications.</p>
         </div>
         <div class="row-inline" style="gap:8px;">
-          <button class="btn btn-outline btn-sm" id="loadSampleBtn">Load Example</button>
+          <button class="btn btn-outline btn-sm" id="loadSampleBtn">⚡ Fill Sample Data</button>
           <button class="btn btn-outline btn-sm" id="resetFormBtn">Clear Form</button>
         </div>
       </div>
+
+      <!-- Step 1 Card -->
       <div class="step-card" id="step1Card">
-        <h2 style="font-size:14.5px;margin:0 0 4px;color:var(--pink-dark);">Step 1 — Get started</h2>
-        <p class="sub" style="margin:0 0 12px;">Add a photo and/or describe the product below, then click Enhance — AI drafts the listing for you to review before anything is filled in. Needs a free Gemini API key (⚙️ Settings). <strong>No key?</strong> Skip straight to Guided Questions at the bottom instead — no AI required.</p>
+        <div class="step-header">
+          <span class="step-num">1</span>
+          <h3 class="step-title">Quick Start — AI Autofill or Guided Wizard</h3>
+        </div>
+        <p class="sub" style="margin:0 0 14px;">Add your product photo or describe it in plain words. AI will draft all required listing fields for your review. Or use the friendly guided questions below!</p>
+        
         <div id="mainImageStep"></div>
-        <div style="margin-top:12px;">
+        
+        <div style="margin-top:16px;background:var(--card);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px;">
+          <div style="font-weight:700;font-size:13px;margin-bottom:6px;color:var(--text);display:flex;align-items:center;gap:6px;">
+            <span>✍️ Describe the Product</span>
+            <span style="font-weight:400;font-size:11.5px;color:var(--muted);">(color, material, pack of 2, dimensions, price...)</span>
+          </div>
           <div id="quickFillHints" style="margin-bottom:8px;"></div>
-          <textarea id="quickFillText" style="min-height:140px;" placeholder="Type or dictate the product details mentioned above, in any order — then click Enhance."></textarea>
-          <div class="row-inline" style="gap:8px;margin-top:8px;">
-            <button type="button" class="btn btn-outline btn-sm" id="voiceBtn">🎤 Start Voice Input</button>
-            <button type="button" class="btn btn-primary btn-sm" id="quickFillBtn">✨ Enhance</button>
+          <textarea id="quickFillText" style="min-height:100px;" placeholder="Example: Silver stainless steel metallic keychain for bike and car keys, pack of 1, weight 45g, price 299 MRP 599..."></textarea>
+          <div class="row-inline" style="gap:8px;margin-top:10px;">
+            <button type="button" class="btn btn-primary btn-sm" id="quickFillBtn">✨ AI Enhance &amp; Autofill</button>
+            <button type="button" class="btn btn-outline btn-sm" id="voiceBtn">🎤 Voice Input</button>
           </div>
-          <div id="quickFillStatus" style="margin-top:6px;"></div>
-          <div id="quickFillPreview" style="margin-top:6px;"></div>
+          <div id="quickFillStatus" style="margin-top:8px;"></div>
+          <div id="quickFillPreview" style="margin-top:8px;"></div>
         </div>
-        <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px;">
-          <div class="help" style="font-weight:600;margin-bottom:6px;">Or skip the AI entirely — answer step-by-step questions instead.</div>
-          <button type="button" class="btn btn-outline btn-sm" id="wizardStartBtn">💬 Start Guided Questions</button>
-          <div id="wizardPanel" style="display:none;margin-top:10px;border:1px solid var(--border);border-radius:10px;padding:12px;background:var(--card);">
-            <div class="row-inline" style="justify-content:space-between;margin-bottom:6px;">
-              <strong style="font-size:13px;color:var(--pink-dark);">Guided Setup</strong>
-              <button type="button" class="btn btn-outline btn-sm" id="wizardCancelBtn">✕ Cancel</button>
-            </div>
-            <div id="wizardLog"></div>
-            <div id="wizardInputArea"></div>
+
+        <div style="margin-top:14px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;background:rgba(255,255,255,0.7);padding:10px 14px;border-radius:var(--radius-sm);border:1px dashed var(--border);">
+          <div style="font-size:12.5px;color:var(--muted);">Prefer answering one simple question at a time?</div>
+          <button type="button" class="btn btn-outline btn-sm" id="wizardStartBtn">💬 Open Step-by-Step Questions</button>
+        </div>
+        
+        <div id="wizardPanel" style="display:none;margin-top:12px;border:1px solid var(--border);border-radius:12px;padding:14px;background:var(--card);">
+          <div class="row-inline" style="justify-content:space-between;margin-bottom:8px;border-bottom:1px solid var(--border);padding-bottom:8px;">
+            <strong style="font-size:13.5px;color:var(--pink-dark);">💬 Step-by-Step Guided Assistant</strong>
+            <button type="button" class="btn btn-outline btn-sm" id="wizardCancelBtn">✕ Close Assistant</button>
           </div>
+          <div id="wizardLog"></div>
+          <div id="wizardInputArea"></div>
         </div>
       </div>
 
-      <h2 style="font-size:14.5px;margin:18px 0 4px;color:var(--pink-dark);">Step 2 — Choose listing type</h2>
-      <div class="seg" id="modeToggle">
-        <button type="button" class="seg-btn active" id="modeSingleBtn">Single Product</button>
-        <button type="button" class="seg-btn" id="modeVariationBtn">Product with Variations (color)</button>
+      <!-- Step 2 -->
+      <div style="margin:24px 0 10px;">
+        <div class="step-header">
+          <span class="step-num">2</span>
+          <h3 class="step-title">Choose Listing Format</h3>
+        </div>
+        <p class="sub" style="margin:0 0 10px;">Select whether this is a standalone product or has multiple color/size variants.</p>
+        <div class="seg" id="modeToggle">
+          <button type="button" class="seg-btn active" id="modeSingleBtn">Single Product</button>
+          <button type="button" class="seg-btn" id="modeVariationBtn">Product with Variations (Multi-Color)</button>
+        </div>
       </div>
 
-      <h2 style="font-size:14.5px;margin:4px 0 4px;color:var(--pink-dark);">Step 3 — Review &amp; complete the details</h2>
-      <p class="sub" style="margin:0 0 4px;">Fields get auto-filled from your photo where possible — check them over and fill in the rest.</p>
+      <!-- Step 3 -->
+      <div style="margin:24px 0 10px;">
+        <div class="step-header">
+          <span class="step-num">3</span>
+          <h3 class="step-title">Review &amp; Edit Product Details</h3>
+        </div>
+        <p class="sub" style="margin:0 0 12px;">All details are categorized into tidy sections below. Adjust any values to your preference.</p>
+      </div>
+
       <div id="formGroups"></div>
-      <div id="variationSection" style="display:none;">
-        <h2 style="font-size:14px;margin:20px 0 6px;color:var(--pink-dark);">Variations</h2>
-        <p class="sub" style="margin:0 0 10px;">One row per color option — everything above is shared across all of them, and becomes its own row in the exported Excel. All variations share the same Group ID so Meesho displays them as one listing.</p>
-        <div id="variationTableWrap"></div>
-        <button class="btn btn-outline btn-sm" type="button" id="addVariationBtn" style="margin-top:10px;">+ Add Variation</button>
+      
+      <div id="variationSection" style="display:none;margin-top:20px;">
+        <div style="background:var(--card-alt);border:1px solid var(--border);border-radius:var(--radius);padding:18px;">
+          <h3 style="font-size:15px;margin:0 0 4px;color:var(--pink-dark);">🎨 Product Variations</h3>
+          <p class="sub" style="margin:0 0 12px;">Each row represents one color/size option. Shared details are copied automatically.</p>
+          <div id="variationTableWrap"></div>
+          <button class="btn btn-outline btn-sm" type="button" id="addVariationBtn" style="margin-top:12px;">➕ Add Another Variation Row</button>
+        </div>
       </div>
+      
       <div id="formErrors"></div>
-      <div class="actions">
-        <button class="btn btn-primary" id="saveProductBtn">Add to Catalog List</button>
+      
+      <div class="actions" style="border-top:1px solid var(--border);padding-top:20px;margin-top:24px;">
+        <button class="btn btn-primary" id="saveProductBtn" style="padding:12px 24px;font-size:14px;">Add to Catalog List</button>
         <button class="btn btn-outline" id="cancelEditBtn" style="display:none;">Cancel Edit</button>
       </div>
     </div>
@@ -212,67 +372,93 @@
   <!-- LIST PANEL -->
   <div class="panel" id="panel-list">
     <div class="card">
-      <h2 style="margin-bottom:2px;">📥 Got an error file back from Meesho?</h2>
-      <p class="sub">Upload the report Meesho sends after a failed bulk upload — same template, with each row's problem written into it. We'll show you exactly what failed and let you fix it here.</p>
-      <input type="file" id="errorReportFile" accept=".xlsx" style="display:none;">
-      <button type="button" class="btn btn-outline btn-sm" id="errorReportBtn">📁 Upload Error Report (.xlsx)</button>
-      <div id="errorReportStatus" style="margin-top:8px;"></div>
-      <div id="errorReportRows" style="margin-top:10px;"></div>
-    </div>
-    <div class="card">
       <div class="pillbar">
-        <span class="count-pill" id="listCountPill">0 products ready</span>
-        <div class="row-inline" style="gap:8px;">
-          <button class="btn btn-outline btn-sm" id="clearAllBtn">Clear All</button>
-          <button class="btn btn-outline" id="exportZipBtn">⬇ Download All Individually (ZIP)</button>
-          <button class="btn btn-primary" id="exportBtn">⬇ Export Excel for Meesho</button>
+        <div>
+          <span class="count-pill" id="listCountPill">0 products ready</span>
+          <p class="sub" style="margin:6px 0 0;">All items below will be packaged into your Meesho upload sheet.</p>
+        </div>
+        <div class="row-inline" style="gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-outline btn-sm" id="clearAllBtn">Clear List</button>
+          <button class="btn btn-outline" id="exportZipBtn">📦 Download Individual Excels (ZIP)</button>
+          <button class="btn btn-primary" id="exportBtn">⬇️ Download Ready Meesho Excel</button>
         </div>
       </div>
       <div id="exportStatus"></div>
-      <div id="listTableWrap"><div class="empty">No products yet. Add one from the "Add / Edit Product" tab.</div></div>
+      <div id="listTableWrap"><div class="empty">No products yet. Add your first product from the "Add / Edit Product" tab!</div></div>
+    </div>
+
+    <div class="card" style="background:var(--card-alt);border-style:dashed;">
+      <h3 style="font-size:15px;margin:0 0 4px;color:var(--text);">📥 Fix a Meesho Upload Error Report</h3>
+      <p class="sub" style="margin:0 0 12px;">If Meesho gave you an error spreadsheet after a bulk upload, upload it here. We'll automatically identify the failing rows and help you fix them in one click.</p>
+      <input type="file" id="errorReportFile" accept=".xlsx" style="display:none;">
+      <button type="button" class="btn btn-outline btn-sm" id="errorReportBtn">📁 Choose Error Report (.xlsx)</button>
+      <div id="errorReportStatus" style="margin-top:8px;"></div>
+      <div id="errorReportRows" style="margin-top:10px;"></div>
     </div>
   </div>
 
   <!-- SETTINGS PANEL -->
   <div class="panel" id="panel-settings">
     <div class="card">
-      <h2 style="margin-bottom:2px;">Seller Defaults</h2>
-      <p class="sub">Set these once — every new product starts pre-filled with them, so you're not retyping your business details on every listing.</p>
-      <div id="settingsFields"></div>
-
-      <h2 style="margin:24px 0 2px;font-size:15px;">AI photo &amp; description tools (optional)</h2>
-      <p class="sub">On the Main Image field: <strong>📷 Choose photo for AI</strong> loads a local photo purely for analysis/generation — it's never uploaded anywhere by this app. Choosing one runs <strong>✨ Enhance</strong> automatically (combining it with anything already typed in "Describe it"), showing an editable draft of Title/Description/SKU/Style ID and more for you to review before anything is filled in. On each "Other Image" field, pick a preset and click <strong>✨ Generate preview</strong> to see an AI-made shot (download it and upload via Meesho's own uploader), or <strong>📋 Copy Prompt</strong> to use it in ChatGPT or any other image tool instead. All of this needs this key <em>and</em> requires the page to be opened through the local server — see the note below.</p>
-      <div class="grid">
-        <div class="field">
-          <label>Gemini API Key</label>
-          <input id="pf_geminiKey" type="text" placeholder="Paste your free API key" autocomplete="off">
-          <div class="help">Get a free key at <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Google AI Studio</a>.</div>
-        </div>
-        <div class="field">
-          <label>Gemini text model <span style="font-weight:400;color:var(--muted);">(advanced)</span></label>
-          <input id="pf_geminiTextModel" type="text" placeholder="gemini-3.1-flash" autocomplete="off">
-          <div class="help">Used for photo analysis. Leave as-is unless Google renames the model and it stops working.</div>
-        </div>
-        <div class="field">
-          <label>Gemini image model <span style="font-weight:400;color:var(--muted);">(advanced)</span></label>
-          <input id="pf_geminiImageModel" type="text" placeholder="gemini-3.1-flash-image" autocomplete="off">
-          <div class="help">Used to generate the other images.</div>
+      <div class="card-header-bar">
+        <div>
+          <h2>Seller Profile &amp; Business Defaults</h2>
+          <p class="sub" style="margin-bottom:0;">These details will be pre-filled automatically on every product you create, saving you from repetitive typing.</p>
         </div>
       </div>
-      <p class="sub" style="margin-top:10px;"><strong>Run via the local server, not by double-clicking the file:</strong> Google's image AI blocks requests sent directly from a browser page (a CORS restriction on their end). This tool ships with a tiny local server that routes around it — run <code>start.bat</code> (or <code>node server.js</code>) in the app folder and open <code>http://localhost:5177</code>. Opened as a plain file, everything else still works — only these two AI buttons (and Excel export) need the server running.</p>
-      <p class="sub"><strong>Review before you export</strong> — AI results are reinterpretations of your one real photo/description, not verified facts. Check each one matches your actual product before it goes live.</p>
+      <div id="settingsFields"></div>
 
-      <div class="actions">
-        <button class="btn btn-primary" id="saveSettingsBtn">Save Settings</button>
+      <div style="margin-top:30px;border-top:1px solid var(--border);padding-top:22px;">
+        <h3 style="font-size:15px;margin:0 0 4px;color:var(--pink-dark);">✨ AI Assistance Setup (Optional)</h3>
+        <p class="sub" style="margin:0 0 14px;">Enable instant photo analysis, auto-descriptions, and smart attribute extraction.</p>
+        
+        <div class="grid">
+          <div class="field">
+            <label>
+              <span class="label-title">Gemini API Key</span>
+              <span class="info-tip" tabindex="0" aria-label="API Key details"><span class="info-icon">i</span><span class="info-tooltip">Get a free key in seconds at Google AI Studio (aistudio.google.com/apikey).</span></span>
+            </label>
+            <input id="pf_geminiKey" type="text" placeholder="Paste your API key here" autocomplete="off">
+          </div>
+          <div class="field">
+            <label>
+              <span class="label-title">AI Text Model <span style="font-weight:400;color:var(--muted);">(Default)</span></span>
+              <span class="info-tip" tabindex="0" aria-label="Model details"><span class="info-icon">i</span><span class="info-tooltip">Fast model for parsing product photos and generating listings. Default: gemini-3.5-flash</span></span>
+            </label>
+            <input id="pf_geminiTextModel" type="text" placeholder="gemini-3.5-flash" autocomplete="off">
+          </div>
+          <div class="field">
+            <label>
+              <span class="label-title">AI Image Model <span style="font-weight:400;color:var(--muted);">(Default)</span></span>
+              <span class="info-tip" tabindex="0" aria-label="Model details"><span class="info-icon">i</span><span class="info-tooltip">Used for angle shot previews and mockup variations. Default: gemini-3.1-flash-image</span></span>
+            </label>
+            <input id="pf_geminiImageModel" type="text" placeholder="gemini-3.1-flash-image" autocomplete="off">
+          </div>
+        </div>
+      </div>
+
+      <div class="actions" style="margin-top:24px;border-top:1px solid var(--border);padding-top:18px;">
+        <button class="btn btn-primary" id="saveSettingsBtn">💾 Save Defaults</button>
       </div>
     </div>
   </div>
 
-  <footer>Export clones your real Meesho template (all its sheets, dropdowns and formatting) and fills the "Keychains-Fill this" sheet with your products. Your draft is saved locally in this browser.</footer>
+  <footer>
+    <div style="max-width:760px;margin:0 auto;">
+      Meesho Catalog Builder generates standard Meesho .xlsx templates preserving all original data validation sheets, dropdown formulas, and formatting. Drafts are safely cached in your local browser session.
+    </div>
+  </footer>
 </div>
 <div class="toast" id="toast"></div>
 
 <script>
+function escapeHtml(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function infoTipHtml(text){
+  if(!text) return '';
+  return `<span class="info-tip" tabindex="0" aria-label="Field information"><span class="info-icon">i</span><span class="info-tooltip">${escapeHtml(text)}</span></span>`;
+}
+
 /* ============ Category schema — loaded dynamically from the server (any Meesho category
    template can be uploaded and parsed into this same shape), falling back to an embedded copy
    of the Keychains schema when there's no server to ask (opened as a plain file). ============ */
@@ -379,22 +565,24 @@ const FALLBACK_KEYCHAINS_SCHEMA = {
   sheetName: 'Keychains-Fill this',
   firstDataRow: 5,
   groups: [
-    {key:'identity', title:'Listing Identity'},
-    {key:'pricing',  title:'Pricing & Tax'},
-    {key:'images',   title:'Images'},
-    {key:'details',  title:'Product Details'},
-    {key:'legal',    title:'Manufacturer, Packer & Importer'},
+    {key:'identity', title:'🏷️ Basic Identification (Name, Brand & Grouping)'},
+    {key:'pricing',  title:'💰 Pricing & GST Details'},
+    {key:'images',   title:'🖼️ Product Photos & Image Links'},
+    {key:'details',  title:'📐 Dimensions, Material & Attributes'},
+    {key:'legal',    title:'🏢 Manufacturer & Legal Mandatory Info'},
   ],
   sizeOptions: ['Free Size'],
   fields: [
     {key:'title', label:'Product Name', col:4, group:'identity', required:true, type:'text',
-      help:'Avoid adding weight, dimensions or price here — those have their own fields.'},
+      help:'Avoid adding weight, dimensions or price here — those have their own dedicated fields.'},
     {key:'generic_name', label:'Generic Name', col:24, group:'identity', required:true, type:'select',
-      options:["Accessories","Bottom Wear","Garment","Keychains","Others","Sportswear","Topwear","Undergarment"]},
+      options:["Accessories","Bottom Wear","Garment","Keychains","Others","Sportswear","Topwear","Undergarment"],
+      help:'Standard category group classification on Meesho.'},
     {key:'group_id', label:'Group ID', col:40, group:'identity', required:false, type:'select',
       options:["Group 01","Group 02","Group 03","Group 04","Group 05","Group 06","Group 07","Group 08","Group 09","Group 10","Group 11","Group 12","Group 13","Group 14","Group 15","Group 16","Group 17","Group 18","Group 19","Group 20","Group 21","Group 22","Group 23","Group 24","Group 25","Group 26","Group 27","Group 28","Group 29","Group 30"],
-      help:'Pick the same Group ID for products that should be grouped into one listing on the Meesho app.'},
-    {key:'brand_name', label:'Brand Name', col:39, group:'identity', required:false, type:'text'},
+      help:'Pick the same Group ID for products that should be grouped together under one catalog listing on Meesho.'},
+    {key:'brand_name', label:'Brand Name', col:39, group:'identity', required:false, type:'text',
+      help:'Your store brand or registered trademark name. Optional for unbranded products.'},
     {key:'brand', label:'Brand', col:42, group:'identity', required:false, type:'select',
       options:["19TH JULY JEWELS","A3DG Anmol3DGallery","ACHERON","ACLIX","ACUTAS","AHMADUN","AJS","ALLIED SALES INDIA","AMAR ENTERPRISE","ASAYATI","AYVION","Afra","Ajmera Fashion","Alexus","Aliza","Allen Solly","Allymen","Alto Prints","Alyne","Amani","Amante","Amara","Ananya Fashion","Angelo","Anora","Anouk","Antra","Artful Abode","Aruna Decor","Asami","Attire Icon","Avasa","Avits","Awalkonda","Awnara","BANISTROKES","BHAVYTA","BOLSAVIRA By DesireOn","BROWN Craft","Baliye","Barstow","Being Human","Bella N Bloom","Belliza Designer","Beltly","Benares Souvenirs","Bhavyam enterprise","Bigboss","BiggSmile","Blue Star","Bruno","Buko AEC","CADDLE & TOES","CADEAU","CHAINSPRO","CHANDRANI","COPEHI","CRAFTAM","CREEKNEST...ALL THAT YOU WANT","Cadila","Campus Sutra","Cantabil","Chandrika","Climberty","Clint","Cloverbyte","Comfort Lady","Cozycato","Craft Corner","Craft Shilp","Cuberkart","Curly Tales","DEBONAIR","DECOROID","DEETHYAS","DHANVI ENTERPRISE","DOKCHAN","DOPESTREET","DaMENSCH","Dais","DecorArtisans","Deethyas FASHION","Del Luna","Devlink","Diaz","Divaas","Diyansh","Dizon","DnH","Dollar Bigboss","Dollar Lehar","Dollar Missy","Dollar Ultra","Dollar Wintercare","Dongli","Dressberry","Drippy Prints","ECLET","ELEPHANTBOAT","EVAN ENTERPRISE","Elaasa","Elite Twist Creations","Envie","Erica","Evordlss","Exprintify","FAYA","FINAL DECOR","FINZ","FITNICK","Faizam Collection","Fassy","Fenicottero","Firstcry","Floret","Fly Birds","Flying Machine","FoMe","Force","Fort Collins","Fuaark","Fubar","GARIHC ENTERPRISE","GCT","GIFTING SOLUTION","GIFTY LUXE","GKM","GLAZU","GT Gala Time","GUSTAVE","Gajal","GharBuddy","Giftingazebo","Gifts Bucket","Govind Crafted","Gritstones","Guti","HANDMADE HUES","HANNEA","HASTHIP","HATAKE","HAVENHUED","HAVLORE","HEMRAJ CRAFTS","HINSHOZ","HKL PRESENT","Haripriya Jewells","Highlander","Highlark","Hikaru","Hipop","Hivata","House Of Commons","I. K. DESIGNS","IFKA Premium","ISHYAR","ISM366","Indocraft","Infinium","Ingrid","JELECTRICALS","JEMIFLY","JKS AVENUE","Javier","Jdp Novelty","Jivika","Jogger's Park","Jompers","Juniper","K Kaparrow","KALANIDHI GIFTS","KANGUVA","KENMA","KEYKEI","KEYLYN","KIDPLAST","KIPSOME","KORTELOZ","KRAFTEDKEY","Kairangi","Kaizen Enterprises","Kajal Kurti","Kanjilal","Karly","Keyzone","KiaNic","Komli","Krishna Enterprises","Kryst","Kuki","LUXXORA","Libas","MAHSON","MAKEPHOTOGIFTS","MAYCREATE","MBA GIFT WALA","MBS DECOR","MEHJ","MIRAN AGATE","MIZI CRAFT","MOOHFAT","MT FEATHERS","Magic Art Pune","Magneto","Magpy","Mahi","Manibam Impex","Manohari","Maroon Clothing","Marwars","Mast & Harbour","Mast Kalandar","Max","Mayur Kurtis","McCarthy","Meile","Merry poppin's","Metronaut","Milan","Miniature World 3D","Mitos","Mshine","Murk Shield","N WALLETS","NAAME","NADNAM","NAIVYA","NIVIZEN","NRG","NSV","NVP ENTERPRISES","Nama","New Print Creations","Nicsy","Niya","Nobero","Noori","NuttyWears","OFIFO","ONYC","OSMLY","Om Enterprise","Optifit","Oswaal","Oswal","Oviya","PAIJASH","PALAY","PATPAT","PEACOCKRIDE","PINK GALAXY","PK ENTERPRISES","PS PRODUCTS","Pantaloons","Paper Being","Parallel World Mart","Parasnath","Parco","Pearl Ocean","Pearlish","Penti","Peter England","Pingala","Planet Popcorn","PlusS","Printality","Prita","Priyaasi","Prolook","Proxima","R.N SAMRIDHI ENTERPRISES","RAMA RADIANCE","RATNA'S","REDHORNS","RIKHEEYA","RINGZANIO","RMVRINDA","RUDRAMYST","RainSound","Rajnandini","Rare","Ravens","Raymond","Real Craft","Regy","Relicon","Retrosound","Rowaro","Rtnahsij","Rupa Jon","Rupa Macroman M Series","Rupa Macrowoman W Series","S-Line","SAANVYA","SAHIB COLLECTION","SAINEX","SANNIDHI","SANNO WORLD","SGE 89","SHILPMART","SHOBHA ENTERPRISES","SNOWIE SOFT","SRB","STHIRA","Saanjh","Saara","Saarthikart","Sadiya","Sahana","Samyak","Sanch","Sangath","Sangpri","Sassafras","Sbb Novelty","Sehaj","Serplex","Seven Square","Seyon Enterprises","Shakti Enterprises","Shanaya Atelier","Shaping Fabric","Shaun","Shining Gift","Shiv Enterprise","Shivaay","Shivika Rohilla Chess Academy","Shoolin","Shyam Enterprises","Shyaway","Siya","Smara Creations","Snitch","Sonari","Sparsh Collection","Spelerio","Spigen","Sport Sun","Sprysh","Spykar","Stellers","Stitch N love handmade with heart","Sunnah Collection House","Supvox","Suti","Svatantra","TANSTITCH","TANTIQUE","TEXTURE","THAMPZ","THE BEAUTY QUEEN","THE MEN GIFT","TRK HUB","TRK IMPEX","TU4 Enterprise","Tashis Pet Junction","Taskin","TasmAI","Techiefox","Techpro","The Bear House","The Gift Berry","Thira","Thomas Scott","Threefold Spirit","Tintin","Tokyo Talkies","Toyaana","Tracy","Trendy Gifts","Trylo","Tweens","Twin Birds","Twin Brothers","Tyrell","UJJWAL ENTERPRISES","Ugees","Uniq","United Colors Of Benetton","Urbanpop","Utsa","Uturn","VANDU ENTERPRISE","VASUUS","VATTU","VDP ENTERPRISES","VMart","VOONTO","VOSTRO","VStar","Valaris","Valmo","Varanga","Vardhman","Veirdo","Verilux","Vibhuprises","Vibry","Virom","Vishal Mega Mart","Vivas","Vymo","WZZA","Wembley","Winget","Winkeli Traders","Wishland","World Gift Mart","WowNow","Wrogn","Wyatt","YAKSHU","Yana","Yashika","Yellow Chimes","You Forever","Yousta","ZEITEL","ZELOXA","ZIRAK","ZORBES","ZUBIHS","ZYZTA","Zeba","ZemGlam","Zibuyu","Zimli","Zivame","Zudio","discopumpkin","excitingLives","flashing click","keyclub","onitore","physicswallah","pw","woonk"]},
 
@@ -404,51 +592,77 @@ const FALLBACK_KEYCHAINS_SCHEMA = {
       help:'Optional lower price where only wrong/defective returns are accepted. Meesho suggests ~₹12 below Meesho Price.'},
     {key:'mrp', label:'MRP (INR)', col:8, group:'pricing', required:true, type:'number',
       help:'Maximum Retail Price — must be ≥ Meesho Price.'},
-    {key:'gst', label:'GST %', col:9, group:'pricing', required:true, type:'select', options:["18","5"]},
+    {key:'gst', label:'GST %', col:9, group:'pricing', required:true, type:'select', options:["18","5"],
+      help:'Applicable GST tax rate percentage for this category.'},
     {key:'hsn', label:'HSN ID', col:10, group:'pricing', required:true, type:'select',
       options:["392640","392690","39269099","441193","600624","630710","731589","732690","830890","910111","95030010"],
       help:'Only these HSN codes are valid for the Keychains category on Meesho.'},
 
-    {key:'main_image', label:'Image 1 (Front)', col:33, group:'images', required:true, type:'text'},
-    {key:'other_image_1', label:'Image 2', col:34, group:'images', required:false, type:'text'},
-    {key:'other_image_2', label:'Image 3', col:35, group:'images', required:false, type:'text'},
-    {key:'other_image_3', label:'Image 4', col:36, group:'images', required:false, type:'text'},
+    {key:'main_image', label:'Image 1 (Front)', col:33, group:'images', required:true, type:'text',
+      help:'Direct URL of the front product photo generated from Meesho\'s Image Uploader.'},
+    {key:'other_image_1', label:'Image 2', col:34, group:'images', required:false, type:'text',
+      help:'Second angle, back, or detail photo link from Meesho\'s Image Uploader.'},
+    {key:'other_image_2', label:'Image 3', col:35, group:'images', required:false, type:'text',
+      help:'Third angle or lifestyle photo link from Meesho\'s Image Uploader.'},
+    {key:'other_image_3', label:'Image 4', col:36, group:'images', required:false, type:'text',
+      help:'Fourth angle or packaging photo link from Meesho\'s Image Uploader.'},
 
-    {key:'size', label:'Variation', col:5, group:'details', required:true, type:'select', options:['Free Size']},
-    {key:'weight', label:'Net Weight (gms)', col:11, group:'details', required:true, type:'number'},
-    {key:'inventory', label:'Inventory', col:12, group:'details', required:true, type:'number'},
+    {key:'size', label:'Variation', col:5, group:'details', required:true, type:'select', options:['Free Size'],
+      help:'Size variation option (usually Free Size for keychains).'},
+    {key:'weight', label:'Net Weight (gms)', col:11, group:'details', required:true, type:'number',
+      help:'Gross packed product weight in grams.'},
+    {key:'inventory', label:'Inventory', col:12, group:'details', required:true, type:'number',
+      help:'Initial available stock quantity in your inventory.'},
     {key:'color', label:'Color', col:23, group:'details', required:true, type:'select',
-      options:["Beige","Black","Blue","Brown","Coral","Cream","Gold","Green","Grey","Grey Melange","Khaki","Lavendar","Maroon","Metallic","Multicolor","Mustard","Navy Blue","Nude","Olive","Orange","Peach","Pink","Purple","Red","Rust","Silver","Teal","White","Yellow"]},
+      options:["Beige","Black","Blue","Brown","Coral","Cream","Gold","Green","Grey","Grey Melange","Khaki","Lavendar","Maroon","Metallic","Multicolor","Mustard","Navy Blue","Nude","Olive","Orange","Peach","Pink","Purple","Red","Rust","Silver","Teal","White","Yellow"],
+      help:'Primary color of the product. Select closest match from Meesho\'s official list.'},
     {key:'material', label:'Material', col:25, group:'details', required:true, type:'select',
-      options:["Canvas","Canvas & Leather","Fabric","Faux Leather/Leatherette","Leather","MDF","Metal","PU","Plastic","Polyester","Resin","Suede","Synthetic","Wooden"]},
-    {key:'net_quantity', label:'Net Quantity (N)', col:26, group:'details', required:true, type:'select', options:["1","10","2","3","4","5","6","7","8","9"]},
-    {key:'dimension_unit', label:'Product Dimension Unit', col:27, group:'details', required:true, type:'select', options:["cm","ft","inch","m","mm"]},
-    {key:'height', label:'Product Height', col:28, group:'details', required:true, type:'number'},
-    {key:'length', label:'Product Length', col:29, group:'details', required:true, type:'number'},
-    {key:'width', label:'Product Width', col:30, group:'details', required:true, type:'number'},
+      options:["Canvas","Canvas & Leather","Fabric","Faux Leather/Leatherette","Leather","MDF","Metal","PU","Plastic","Polyester","Resin","Suede","Synthetic","Wooden"],
+      help:'Primary manufacturing material.'},
+    {key:'net_quantity', label:'Net Quantity (N)', col:26, group:'details', required:true, type:'select', options:["1","10","2","3","4","5","6","7","8","9"],
+      help:'Number of items included in a single package.'},
+    {key:'dimension_unit', label:'Product Dimension Unit', col:27, group:'details', required:true, type:'select', options:["cm","ft","inch","m","mm"],
+      help:'Measurement unit used for Height, Length, and Width.'},
+    {key:'height', label:'Product Height', col:28, group:'details', required:true, type:'number',
+      help:'Height / thickness in chosen dimension units.'},
+    {key:'length', label:'Product Length', col:29, group:'details', required:true, type:'number',
+      help:'Length in chosen dimension units.'},
+    {key:'width', label:'Product Width', col:30, group:'details', required:true, type:'number',
+      help:'Width / breadth in chosen dimension units.'},
     {key:'shape', label:'Shape', col:31, group:'details', required:true, type:'select',
-      options:["Butterfly","Circle","D Shape","Diamond","Heart","Hexagonal","Oblong","Oval","Pear","Pentagonal","Rectangular","Round","Square","Star","Triangular"]},
+      options:["Butterfly","Circle","D Shape","Diamond","Heart","Hexagonal","Oblong","Oval","Pear","Pentagonal","Rectangular","Round","Square","Star","Triangular"],
+      help:'Visual shape geometry of the keychain.'},
     {key:'type', label:'Type', col:32, group:'details', required:true, type:'select',
-      options:["Animal","Anime Keychains","BT21 Keychain","BTS","Bike Keychains","Car Keychain","Cartoon","Challa Keychain","Couple Keychain","Customized Keychain","Drive Safe Keychain","Evil Eye Keychain","Gas Lighter Keychain","Henna/Mehandi Keychain","Love Keychain","Music","Photo Keychain","Pop It Keychain","Smiley Keychain","Sports"]},
+      options:["Animal","Anime Keychains","BT21 Keychain","BTS","Bike Keychains","Car Keychain","Cartoon","Challa Keychain","Couple Keychain","Customized Keychain","Drive Safe Keychain","Evil Eye Keychain","Gas Lighter Keychain","Henna/Mehandi Keychain","Love Keychain","Music","Photo Keychain","Pop It Keychain","Smiley Keychain","Sports"],
+      help:'Theme style classification for customer filtering.'},
     {key:'style_id', label:'Product ID / Style ID', col:37, group:'details', required:false, type:'text',
       help:'Same across Size variants of one item, different across Color variants.'},
     {key:'sku', label:'SKU ID', col:38, group:'details', required:false, type:'text',
       help:'Meesho allows this to be blank (auto-generated), but we require it here to track rows in your list.'},
     {key:'description', label:'Product Description', col:41, group:'details', required:false, type:'textarea',
-      help:"Stick to factual product details. Avoid promotional/medical claims, competitor marketplace names, or restricted-topic words — Meesho scans for these and a real upload got flagged for using \"essentials\". Meesho's full list only lives in your own Supplier Panel (Settings → Legal and Policies → Prohibited Items)."},
+      help:"Stick to factual product details. Avoid promotional/medical claims, competitor marketplace names, or restricted words."},
 
     {key:'country_of_origin', label:'Country of Origin', col:13, group:'legal', required:true, type:'select',
-      options:["Afghanistan","Albania","Algeria","Andorra","Angola","Antigua and Barbuda","Argentina","Armenia","Australia","Austria","Azerbaijan","Bahamas","Bahrain","Bangladesh","Barbados","Belarus","Belgium","Belize","Benin","Bhutan","Bolivia","Bosnia-Herzegovina","Botswana","Brazil","Brunei","Bulgaria","Burkina Faso","Burundi","Cabo Verde","Cambodia","Cameroon","Canada","Central African Rep","Chad","Chile","China","Colombia","Comoros","Congo","Costa Rica","Croatia","Cuba","Cyprus","Czechia","DRC Congo","Denmark","Djibouti","Dominica","Dominican Republic","Ecuador","Egypt","El Salvador","Equatorial Guinea","Eritrea","Estonia","Eswatini","Ethiopia","Fiji","Finland","France","Gabon","Gambia","Georgia","Germany","Ghana","Greece","Grenada","Guatemala","Guinea","Guinea Bissau","Guyana","Haiti","Holy See","Honduras","Hungary","Iceland","India","Indonesia","Iran","Iraq","Ireland","Israel","Italy","Jamaica","Japan","Jordan","Kazakhstan","Kenya","Kiribati","Kuwait","Kyrgyzstan","Laos","Latvia","Lebanon","Lesotho","Liberia","Libya","Liechtenstein","Lithuania","Luxembourg","Madagascar","Malawi","Malaysia","Maldives","Mali","Malta","Marshall Islands","Mauritania","Mauritius","Mexico","Micronesia","Moldova","Monaco","Mongolia","Montenegro","Morocco","Mozambique","Myanmar","Namibia","Nauru","Nepal","Netherlands","New Zealand","Nicaragua","Niger","Nigeria","North Korea","North Macedonia","Norway","Oman","Palau","Palestine State","Panama","Papua New Guinea","Paraguay","Peru","Philippines","Poland","Portugal","Qatar","Romania","Russia","Rwanda","Saint Kitts & Nevis","Saint Lucia","Samoa","San Marino","Sao Tome","Saudi Arabia","Senegal","Serbia","Seychelles","Sierra Leone","Singapore","Slovakia","Slovenia","Solomon Islands","Somalia","South Africa","South Korea","South Sudan","Spain","Sri Lanka","St Vincent","Sudan","Suriname","Sweden","Switzerland","Syria","Tajikistan","Tanzania","Thailand","Timor Leste","Togo","Tonga","Trinidad and Tobago","Tunisia","Turkey","Turkmenistan","Tuvalu","UAE","USA","Uganda","Ukraine","United Kingdom","Uruguay","Uzbekistan","Vanuatu","Venezuela","Vietnam","Yemen","Zambia","Zimbabwe"]},
-    {key:'manufacturer', label:'Manufacturer Name', col:14, group:'legal', required:true, type:'text'},
-    {key:'manufacturer_address', label:'Manufacturer Address', col:15, group:'legal', required:true, type:'text'},
-    {key:'manufacturer_pincode', label:'Manufacturer Pincode', col:16, group:'legal', required:true, type:'text'},
-    {key:'packer', label:'Packer Name', col:17, group:'legal', required:true, type:'text'},
-    {key:'packer_address', label:'Packer Address', col:18, group:'legal', required:true, type:'text'},
-    {key:'packer_pincode', label:'Packer Pincode', col:19, group:'legal', required:true, type:'text'},
+      options:["Afghanistan","Albania","Algeria","Andorra","Angola","Antigua and Barbuda","Argentina","Armenia","Australia","Austria","Azerbaijan","Bahamas","Bahrain","Bangladesh","Barbados","Belarus","Belgium","Belize","Benin","Bhutan","Bolivia","Bosnia-Herzegovina","Botswana","Brazil","Brunei","Bulgaria","Burkina Faso","Burundi","Cabo Verde","Cambodia","Cameroon","Canada","Central African Rep","Chad","Chile","China","Colombia","Comoros","Congo","Costa Rica","Croatia","Cuba","Cyprus","Czechia","DRC Congo","Denmark","Djibouti","Dominica","Dominican Republic","Ecuador","Egypt","El Salvador","Equatorial Guinea","Eritrea","Estonia","Eswatini","Ethiopia","Fiji","Finland","France","Gabon","Gambia","Georgia","Germany","Ghana","Greece","Grenada","Guatemala","Guinea","Guinea Bissau","Guyana","Haiti","Holy See","Honduras","Hungary","Iceland","India","Indonesia","Iran","Iraq","Ireland","Israel","Italy","Jamaica","Japan","Jordan","Kazakhstan","Kenya","Kiribati","Kuwait","Kyrgyzstan","Laos","Latvia","Lebanon","Lesotho","Liberia","Libya","Liechtenstein","Lithuania","Luxembourg","Madagascar","Malawi","Malaysia","Maldives","Mali","Malta","Marshall Islands","Mauritania","Mauritius","Mexico","Micronesia","Moldova","Monaco","Mongolia","Montenegro","Morocco","Mozambique","Myanmar","Namibia","Nauru","Nepal","Netherlands","New Zealand","Nicaragua","Niger","Nigeria","North Korea","North Macedonia","Norway","Oman","Palau","Palestine State","Panama","Papua New Guinea","Paraguay","Peru","Philippines","Poland","Portugal","Qatar","Romania","Russia","Rwanda","Saint Kitts & Nevis","Saint Lucia","Samoa","San Marino","Sao Tome","Saudi Arabia","Senegal","Serbia","Seychelles","Sierra Leone","Singapore","Slovakia","Slovenia","Solomon Islands","Somalia","South Africa","South Korea","South Sudan","Spain","Sri Lanka","St Vincent","Sudan","Suriname","Sweden","Switzerland","Syria","Tajikistan","Tanzania","Thailand","Timor Leste","Togo","Tonga","Trinidad and Tobago","Tunisia","Turkey","Turkmenistan","Tuvalu","UAE","USA","Uganda","Ukraine","United Kingdom","Uruguay","Uzbekistan","Vanuatu","Venezuela","Vietnam","Yemen","Zambia","Zimbabwe"],
+      help:'Country where the product was manufactured (e.g. India).'},
+    {key:'manufacturer', label:'Manufacturer Name', col:14, group:'legal', required:true, type:'text',
+      help:'Registered legal business name of the manufacturing company.'},
+    {key:'manufacturer_address', label:'Manufacturer Address', col:15, group:'legal', required:true, type:'text',
+      help:'Complete physical address of the manufacturing facility.'},
+    {key:'manufacturer_pincode', label:'Manufacturer Pincode', col:16, group:'legal', required:true, type:'text',
+      help:'6-digit postal pincode of the manufacturer.'},
+    {key:'packer', label:'Packer Name', col:17, group:'legal', required:true, type:'text',
+      help:'Name of entity packaging the goods for distribution (same as manufacturer if self-packing).'},
+    {key:'packer_address', label:'Packer Address', col:18, group:'legal', required:true, type:'text',
+      help:'Complete physical address of the packing facility.'},
+    {key:'packer_pincode', label:'Packer Pincode', col:19, group:'legal', required:true, type:'text',
+      help:'6-digit postal pincode of the packing location.'},
     {key:'importer', label:'Importer Name', col:20, group:'legal', required:true, type:'text',
-      help:"If you don't import, many sellers repeat their Manufacturer details here — check current Meesho guidance."},
-    {key:'importer_address', label:'Importer Address', col:21, group:'legal', required:true, type:'text'},
-    {key:'importer_pincode', label:'Importer Pincode', col:22, group:'legal', required:true, type:'text'},
+      help:"If you don't import, repeat your Manufacturer details here."},
+    {key:'importer_address', label:'Importer Address', col:21, group:'legal', required:true, type:'text',
+      help:'Complete physical address of the importing entity.'},
+    {key:'importer_pincode', label:'Importer Pincode', col:22, group:'legal', required:true, type:'text',
+      help:'6-digit postal pincode of the importer.'},
   ],
 };
 
@@ -469,27 +683,37 @@ const SAMPLE = {
 
 /* ============ AI config ============ */
 const IS_SERVED = location.protocol !== 'file:';
-const DEFAULT_GEMINI_TEXT_MODEL = 'gemini-3.1-flash';
+let serverHasApiKey = false;
+async function checkServerConfig(){
+  if(IS_SERVED){
+    try {
+      const r = await fetch('/api/config');
+      const d = await r.json();
+      serverHasApiKey = Boolean(d && d.hasServerApiKey);
+    } catch(e){}
+  }
+}
+const DEFAULT_GEMINI_TEXT_MODEL = 'gemini-3.5-flash';
 const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image';
 let lastImageBlobs = {};
 
 /* ============ Seller profile / defaults ============ */
 const PROFILE_KEY = 'meesho_seller_profile_v2';
 const PROFILE_FIELDS = [
-  {key:'manufacturer', label:'Manufacturer Name', default:'Asha Maven', help:'Auto-fills into every new product. Same as Packer/Importer below by default — change any of the three independently if they differ for you.'},
-  {key:'manufacturer_address', label:'Manufacturer Address', default:'Ramanathapuram'},
-  {key:'manufacturer_pincode', label:'Manufacturer Pincode', default:'623504'},
-  {key:'packer', label:'Packer Name', default:'Asha Maven'},
-  {key:'packer_address', label:'Packer Address', default:'Ramanathapuram'},
-  {key:'packer_pincode', label:'Packer Pincode', default:'623504'},
-  {key:'importer', label:'Importer Name', default:'Asha Maven'},
-  {key:'importer_address', label:'Importer Address', default:'Ramanathapuram'},
-  {key:'importer_pincode', label:'Importer Pincode', default:'623504'},
-  {key:'country_of_origin', label:'Country of Origin', default:'India'},
-  {key:'brand_name', label:'Brand Name', default:'Asha Maven'},
-  {key:'gst', label:'GST %', default:'18'},
-  {key:'hsn', label:'HSN ID', default:''}, // HSN codes are category-specific — no safe universal guess
-  {key:'dimension_unit', label:'Product Dimension Unit', default:'cm'},
+  {key:'manufacturer', label:'Manufacturer Name', default:'Asha Maven', help:'Registered legal business name of the manufacturer. Auto-fills into every new product.'},
+  {key:'manufacturer_address', label:'Manufacturer Address', default:'Ramanathapuram', help:'Complete registered address of the manufacturing facility.'},
+  {key:'manufacturer_pincode', label:'Manufacturer Pincode', default:'623504', help:'6-digit postal pincode of the manufacturer.'},
+  {key:'packer', label:'Packer Name', default:'Asha Maven', help:'Entity packaging the goods for distribution (same as manufacturer if self-packing).'},
+  {key:'packer_address', label:'Packer Address', default:'Ramanathapuram', help:'Complete physical address of the packing facility.'},
+  {key:'packer_pincode', label:'Packer Pincode', default:'623504', help:'6-digit postal pincode of the packing location.'},
+  {key:'importer', label:'Importer Name', default:'Asha Maven', help:'Name of importer if imported into India; otherwise repeat manufacturer name.'},
+  {key:'importer_address', label:'Importer Address', default:'Ramanathapuram', help:'Physical address of the importing entity.'},
+  {key:'importer_pincode', label:'Importer Pincode', default:'623504', help:'6-digit postal pincode of the importer.'},
+  {key:'country_of_origin', label:'Country of Origin', default:'India', help:'Country where products are manufactured.'},
+  {key:'brand_name', label:'Brand Name', default:'Asha Maven', help:'Your store brand or registered trademark name.'},
+  {key:'gst', label:'GST %', default:'18', help:'Default GST tax rate percentage for your catalog.'},
+  {key:'hsn', label:'HSN ID', default:'', help:'Default HSN code for GST invoicing.'},
+  {key:'dimension_unit', label:'Product Dimension Unit', default:'cm', help:'Default measurement unit (cm, mm, inch) for product dimensions.'},
 ];
 let profile = {};
 // One-time migration: an earlier version of this app stored settings under
@@ -560,9 +784,11 @@ function renderSettings(){
       ? `<select id="pf_${pf.key}">${options.map(o=>`<option value="${escapeHtml(o)}"${o===val?' selected':''}>${escapeHtml(o)}</option>`).join('')}</select>`
       : `<input id="pf_${pf.key}" type="text" value="${val.replace(/"/g,'&quot;')}" autocomplete="off">`;
     return `<div class="field">
-      <label>${pf.label}</label>
+      <label>
+        <span class="label-title">${pf.label}</span>
+        ${infoTipHtml(pf.help)}
+      </label>
       ${control}
-      ${pf.help?`<div class="help">${pf.help}</div>`:''}
     </div>`;
   }).join('') + `</div>`;
   document.getElementById('pf_geminiKey').value = profile.geminiKey || '';
@@ -632,17 +858,52 @@ let form = emptyForm();
    file never gets uploaded or turned into a URL by this app. ============ */
 let previewTimers = {};
 
-function imageUrlInputHtml(id, value){
+async function pasteFromClipboardToInput(id, onValueChange){
+  const input = document.getElementById(id);
+  if(!input) return;
+  let text = '';
+  try{
+    if(navigator.clipboard && navigator.clipboard.readText){
+      text = await navigator.clipboard.readText();
+    }
+  }catch(e){}
+
+  if(text && text.trim()){
+    input.value = text.trim();
+    if(onValueChange) onValueChange(input.value);
+    updateImgPreview(id, input.value);
+    const fieldWrap = input.closest('.field');
+    if(fieldWrap) fieldWrap.classList.remove('invalid');
+    showToast('📋 Link pasted from clipboard');
+  } else {
+    input.focus();
+    input.select();
+    showToast('Clipboard access unavailable — press Ctrl+V / Cmd+V to paste');
+  }
+}
+
+function imageUrlInputHtml(id, value, isTable){
   const val = (value||'').toString().replace(/"/g,'&quot;');
-  return `<input id="${id}" type="text" value="${val}" autocomplete="off" placeholder="Paste the link from Meesho's Image Uploader">
+  if(isTable){
+    return `<div class="row-inline" style="gap:4px;flex-wrap:nowrap;">
+      <input id="${id}" type="text" value="${val}" autocomplete="off" placeholder="Paste link" style="width:110px;">
+      <button type="button" class="icon-btn" id="${id}_paste" title="Paste link from clipboard">📋</button>
+    </div>
     <div class="img-preview" id="${id}_prev"></div>`;
+  }
+  return `<div class="row-inline" style="gap:6px;">
+    <input id="${id}" type="text" value="${val}" autocomplete="off" placeholder="Paste the link from Meesho's Image Uploader" style="flex:1;">
+    <button type="button" class="btn btn-outline btn-sm" id="${id}_paste" title="Paste link from clipboard">📋 Paste link</button>
+  </div>
+  <div class="img-preview" id="${id}_prev"></div>`;
 }
 
 function mainImageControlHtml(id, value){
   const val = (value||'').toString().replace(/"/g,'&quot;');
-  return `<div class="row-inline">
-      <input id="${id}" type="text" value="${val}" autocomplete="off" placeholder="Paste the link from Meesho's Image Uploader">
-      <button type="button" class="btn btn-outline btn-sm" id="${id}_browse">📷 Choose photo for AI</button>
+  return `<div class="row-inline" style="gap:6px;flex-wrap:wrap;">
+      <input id="${id}" type="text" value="${val}" autocomplete="off" placeholder="Paste the link from Meesho's Image Uploader" style="flex:1;min-width:200px;">
+      <button type="button" class="btn btn-outline btn-sm" id="${id}_paste" title="Paste link from clipboard">📋 Paste link</button>
+      <button type="button" class="btn btn-outline btn-sm" id="${id}_browse" title="Choose local image file for AI analysis">📷 Choose photo for AI</button>
       <input type="file" accept="image/*" id="${id}_file" style="display:none;">
     </div>
     <div class="img-preview" id="${id}_prev"></div>`;
@@ -662,23 +923,25 @@ function updateImgPreview(id, url){
   }, 400);
 }
 
-// Plain URL field — no Browse, no upload. Used for the 3 "Other Image" fields and per-variant
-// photo overrides.
+// Plain URL field — with clipboard paste button
 function wireImageUrlInput(id, onValueChange){
   const input = document.getElementById(id);
+  const pasteBtn = document.getElementById(id+'_paste');
   if(!input) return;
   input.addEventListener('input', ()=>{ onValueChange(input.value); updateImgPreview(id, input.value); });
+  if(pasteBtn) pasteBtn.addEventListener('click', ()=> pasteFromClipboardToInput(id, onValueChange));
   updateImgPreview(id, input.value);
 }
 
-// Main Image field only — the URL field is still a plain paste target, but Browse here loads a
-// local file purely into memory (never uploaded) so the AI photo tools have something to look at.
+// Main Image field only — includes Paste Link and Browse for AI photo tools
 function wireMainImageControl(id, onValueChange){
   const input = document.getElementById(id);
+  const pasteBtn = document.getElementById(id+'_paste');
   const browseBtn = document.getElementById(id+'_browse');
   const fileInput = document.getElementById(id+'_file');
   if(!input) return;
   input.addEventListener('input', ()=>{ onValueChange(input.value); updateImgPreview(id, input.value); });
+  if(pasteBtn) pasteBtn.addEventListener('click', ()=> pasteFromClipboardToInput(id, onValueChange));
   browseBtn.addEventListener('click', ()=> fileInput.click());
   fileInput.addEventListener('change', ()=>{
     const file = fileInput.files[0];
@@ -694,13 +957,12 @@ function wireMainImageControl(id, onValueChange){
   updateImgPreview(id, input.value);
 }
 
-// Variation-row photo field: same paste-a-link box as everywhere else, plus a small "Choose
-// photo for AI" button (like the Main Image field) so each color can be analyzed from its own
-// photo instead of only ever looking at the single top-level Main Image.
+// Variation-row photo field: includes Paste Link button and Browse for AI photo tools
 function variationImageControlHtml(id, value){
   const val = (value||'').toString().replace(/"/g,'&quot;');
   return `<div class="row-inline" style="gap:4px;flex-wrap:nowrap;">
-      <input id="${id}" type="text" value="${val}" autocomplete="off" placeholder="Paste link" style="width:120px;">
+      <input id="${id}" type="text" value="${val}" autocomplete="off" placeholder="Paste link" style="width:110px;">
+      <button type="button" class="icon-btn" id="${id}_paste" title="Paste link from clipboard">📋</button>
       <button type="button" class="icon-btn" id="${id}_browse" title="Choose a photo of THIS color for AI">📷</button>
       <input type="file" accept="image/*" id="${id}_file" style="display:none;">
     </div>
@@ -708,11 +970,13 @@ function variationImageControlHtml(id, value){
 }
 function wireVariationImageControl(id, i){
   const input = document.getElementById(id);
+  const pasteBtn = document.getElementById(id+'_paste');
   const browseBtn = document.getElementById(id+'_browse');
   const fileInput = document.getElementById(id+'_file');
   if(!input) return;
   input.addEventListener('input', ()=>{ variationRows[i].main_image = input.value; updateImgPreview(id, input.value); });
   updateImgPreview(id, input.value);
+  if(pasteBtn) pasteBtn.addEventListener('click', ()=> pasteFromClipboardToInput(id, (val)=>{ variationRows[i].main_image = val; }));
   browseBtn.addEventListener('click', ()=> fileInput.click());
   fileInput.addEventListener('change', ()=>{
     const file = fileInput.files[0];
@@ -805,8 +1069,8 @@ async function callGeminiImage(apiKey, model, base64, mimeType, prompt){
 }
 
 function describeAIError(err){
-  if(!IS_SERVED) return "AI features need the local server — run start.bat (or 'node server.js') in the app folder and open http://localhost:5177, instead of double-clicking the HTML file.";
-  if(err instanceof TypeError) return "Couldn't reach the local server. Make sure start.bat / node server.js is still running.";
+  if(!IS_SERVED) return "AI features need the server connection. Please ensure the application server is running.";
+  if(err instanceof TypeError) return "Couldn't reach the server. Please check your connection.";
   return err && err.message ? err.message : 'Something went wrong.';
 }
 
@@ -835,7 +1099,7 @@ function resolveHsnGuess(guess){
 async function analyzeVariationPhotoWithAI(i, id){
   const box = document.getElementById(id+'_prev');
   const geminiKey = (profile.geminiKey||'').trim();
-  if(!IS_SERVED || !geminiKey || !box) return;
+  if(!IS_SERVED || (!geminiKey && !serverHasApiKey) || !box) return;
   const blob = lastImageBlobs[id];
   if(!blob) return;
   box.insertAdjacentHTML('beforeend', ' <span class="tag idle">analyzing…</span>');
@@ -897,7 +1161,7 @@ async function enhanceDescriptionWithAI(){
   }
   if(!IS_SERVED){ showToast(describeAIError()); return; }
   const geminiKey = (profile.geminiKey||'').trim();
-  if(!geminiKey){ showToast('Add a Gemini API key in ⚙️ Settings first.'); return; }
+  if(!geminiKey && !serverHasApiKey){ showToast('Add a Gemini API key in ⚙️ Settings or set GEMINI_API_KEY env variable.'); return; }
   if(btn){ btn.disabled = true; btn.textContent = '✨ Writing…'; }
   try{
     const model = (profile.geminiTextModel || DEFAULT_GEMINI_TEXT_MODEL).trim();
@@ -1016,7 +1280,7 @@ async function enhanceFreeTextWithAI(){
   pendingQuickFill = null;
   if(!IS_SERVED){ statusEl.innerHTML = `<span class="tag bad">${escapeHtml(describeAIError())}</span>`; return; }
   const geminiKey = (profile.geminiKey||'').trim();
-  if(!geminiKey){ statusEl.innerHTML = '<span class="tag bad">Add a Gemini API key in ⚙️ Settings first.</span>'; return; }
+  if(!geminiKey && !serverHasApiKey){ statusEl.innerHTML = '<span class="tag bad">Add a Gemini API key in ⚙️ Settings or configure GEMINI_API_KEY.</span>'; return; }
   const rawText = (document.getElementById('quickFillText').value||'').trim();
   let imageInfo = null;
   try{ imageInfo = await getMainImageBase64(); }catch(e){ imageInfo = null; } // photo is optional here
@@ -1293,7 +1557,7 @@ async function generateFieldImage(id){
   if(!statusEl) return;
   if(!IS_SERVED){ statusEl.innerHTML = `<span class="tag bad">${escapeHtml(describeAIError())}</span>`; return; }
   const geminiKey = (profile.geminiKey||'').trim();
-  if(!geminiKey){ statusEl.innerHTML = '<span class="tag bad">Add a Gemini API key in ⚙️ Settings first.</span>'; return; }
+  if(!geminiKey && !serverHasApiKey){ statusEl.innerHTML = '<span class="tag bad">Add a Gemini API key in ⚙️ Settings or configure GEMINI_API_KEY.</span>'; return; }
   const promptEl = document.getElementById(id+'_prompt');
   const prompt = (promptEl ? promptEl.value : '').trim();
   if(!prompt){ statusEl.innerHTML = '<span class="tag bad">Pick a preset or type a prompt first.</span>'; return; }
@@ -1410,9 +1674,11 @@ function fieldHtml(fd){
     ? `Used for any color variation that doesn't set its own ${fd.label} in the Variations table below.`
     : fd.help;
   return `<div class="field${isImageField(fd)?' img-field':''}" id="wrap_${fd.key}">
-    <label>${label}${labelSuffix}</label>
+    <label>
+      <span class="label-title">${label}${labelSuffix}</span>
+      ${infoTipHtml(help)}
+    </label>
     ${control}
-    ${help?`<div class="help">${help}</div>`:''}
     ${extra}
   </div>`;
 }
@@ -1421,16 +1687,18 @@ function renderMainImageStep(){
   const wrap = document.getElementById('mainImageStep');
   const label = mode==='variations' ? 'Default Image 1 (Front)' : 'Image 1 (Front)';
   const note = mode==='variations'
-    ? "Meesho only requires 1 front photo per color — set it here as a fallback, or leave this blank and give each color its own Image 1 in the Variations table below (at least one of the two is required per row)."
-    : 'Upload your photo via Meesho\'s Image Uploader and paste the link here. "Choose photo for AI" below is separate — that copy is only shown to AI, never uploaded.';
+    ? "Meesho only requires 1 front photo per color — set it here as a fallback, or leave this blank and give each color its own Image 1 in the Variations table below."
+    : 'Upload your photo via Meesho\'s Image Uploader and paste the link here. "Choose photo for AI" is separate — that copy is only analyzed by AI, never uploaded.';
   const requiredBadge = mode==='variations'
     ? ' <span style="font-weight:400;color:var(--muted);font-size:11.5px;">(required only if a row doesn\'t set its own)</span>'
     : ' <span class="req">*</span>';
   wrap.innerHTML = `
     <div class="field img-field" id="wrap_main_image">
-      <label>${label}${requiredBadge}</label>
+      <label>
+        <span class="label-title">${label}${requiredBadge}</span>
+        ${infoTipHtml(note)}
+      </label>
       ${mainImageControlHtml('f_main_image', form.main_image)}
-      <div class="help">${note}</div>
     </div>`;
   wireMainImageControl('f_main_image', (val)=>{
     form.main_image = val;
@@ -1515,7 +1783,13 @@ function renderForm(){
   });
 
   const skuLabel = document.querySelector('#wrap_sku label');
-  if(skuLabel) skuLabel.innerHTML = mode==='variations' ? 'Base SKU / Style Prefix <span class="req">*</span>' : 'SKU ID <span class="req">*</span>';
+  if(skuLabel){
+    const skuHelp = mode==='variations'
+      ? 'Prefix used to generate unique SKU for each variation (e.g. SKU_RED, SKU_BLUE).'
+      : 'Meesho allows this to be blank (auto-generated), but we require it here to track rows in your catalog list.';
+    const titleText = mode==='variations' ? 'Base SKU / Style Prefix <span class="req">*</span>' : 'SKU ID <span class="req">*</span>';
+    skuLabel.innerHTML = `<span class="label-title">${titleText}</span>${infoTipHtml(skuHelp)}`;
+  }
 
   ['other_image_1','other_image_2','other_image_3'].forEach(key=>{
     const id = 'f_'+key;
@@ -1581,9 +1855,9 @@ function renderVariationTable(){
       <td><input type="number" data-vf="weight" data-i="${i}" value="${escapeHtml(r.weight)}" style="width:65px;"></td>
       <td><input type="number" data-vf="inventory" data-i="${i}" value="${escapeHtml(r.inventory)}" style="width:65px;"></td>
       <td>${variationImageControlHtml('var_'+i+'_main_image', r.main_image)}</td>
-      <td>${imageUrlInputHtml('var_'+i+'_other_image_1', r.other_image_1)}</td>
-      <td>${imageUrlInputHtml('var_'+i+'_other_image_2', r.other_image_2)}</td>
-      <td>${imageUrlInputHtml('var_'+i+'_other_image_3', r.other_image_3)}</td>
+      <td>${imageUrlInputHtml('var_'+i+'_other_image_1', r.other_image_1, true)}</td>
+      <td>${imageUrlInputHtml('var_'+i+'_other_image_2', r.other_image_2, true)}</td>
+      <td>${imageUrlInputHtml('var_'+i+'_other_image_3', r.other_image_3, true)}</td>
       <td><button class="icon-btn" data-vdel="${i}" title="Remove" type="button">🗑️</button></td>
     </tr>`).join('') + `</tbody></table></div>
     <p class="sub" style="margin-top:6px;">Meesho requires at least Image 1 (Front) on every SKU — leave any of the 4 columns blank on a row and it falls back to the matching "Default Image" field above (Step 3 → Images). 📷 on Image 1 lets you pick that color's own photo for AI to suggest Color/Material from — it's never uploaded, same as the Main Image field elsewhere.</p>`;
@@ -2436,6 +2710,7 @@ document.getElementById('categoryUploadBtn').addEventListener('click', async ()=
 document.getElementById('quickFillBtn').addEventListener('click', enhanceFreeTextWithAI);
 document.getElementById('voiceBtn').addEventListener('click', toggleVoiceInput);
 (async function initApp(){
+  await checkServerConfig();
   await bootstrapCategory();
   updateCategoryLabel();
   updateQuickFillPlaceholder();

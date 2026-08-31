@@ -18,7 +18,7 @@ const path = require('path');
 const ExcelJS = require('exceljs');
 const JSZip = require('jszip');
 
-const PORT = process.env.PORT || 5177;
+const PORT = 3000;
 const INDEX_HTML_PATH = path.join(__dirname, 'index.html');
 const LEGACY_TEMPLATE_XLSX_PATH = path.join(__dirname, 'template.xlsx'); // the original bundled Keychains template
 const CATEGORIES_DIR = path.join(__dirname, 'categories');
@@ -363,18 +363,29 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Health check endpoint
+  if (req.method === 'GET' && url.pathname === '/api/health') {
+    return sendJson(res, 200, { status: 'ok' });
+  }
+
+  // Runtime config endpoint
+  if (req.method === 'GET' && url.pathname === '/api/config') {
+    return sendJson(res, 200, { hasServerApiKey: Boolean(process.env.GEMINI_API_KEY) });
+  }
+
   // Proxies a Gemini "interactions" request. The browser never talks to
   // Google directly, which is what avoids the CORS failure.
   if (req.method === 'POST' && url.pathname === '/api/gemini') {
     try {
       const body = await readBody(req, 25 * 1024 * 1024);
       const { apiKey, model, input } = JSON.parse(body || '{}');
-      if (!apiKey || !model || !input) {
-        return sendJson(res, 400, { error: 'Missing apiKey, model, or input' });
+      const keyToUse = (apiKey && apiKey.trim()) || process.env.GEMINI_API_KEY;
+      if (!keyToUse || !model || !input) {
+        return sendJson(res, 400, { error: 'Missing Gemini API Key, model, or input. Please configure GEMINI_API_KEY or provide a key in Settings.' });
       }
       const upstream = await fetch(GEMINI_ENDPOINT, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': keyToUse },
         body: JSON.stringify({ model, input }),
       });
       const text = await upstream.text();
@@ -562,7 +573,7 @@ const server = http.createServer(async (req, res) => {
   res.end('Not found');
 });
 
-server.listen(PORT, () => {
-  console.log(`Meesho Catalog Builder running at http://localhost:${PORT}`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Meesho Catalog Builder running at http://0.0.0.0:${PORT}`);
   console.log('Press Ctrl+C to stop.');
 });
