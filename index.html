@@ -940,13 +940,26 @@ function wireMainImageControl(id, onValueChange){
   const browseBtn = document.getElementById(id+'_browse');
   const fileInput = document.getElementById(id+'_file');
   if(!input) return;
-  input.addEventListener('input', ()=>{ onValueChange(input.value); updateImgPreview(id, input.value); });
-  if(pasteBtn) pasteBtn.addEventListener('click', ()=> pasteFromClipboardToInput(id, onValueChange));
+  input.addEventListener('input', ()=>{
+    delete lastImageBlobs[id];
+    lastAIDescription = '';
+    pendingQuickFill = null;
+    onValueChange(input.value);
+    updateImgPreview(id, input.value);
+  });
+  if(pasteBtn) pasteBtn.addEventListener('click', ()=> {
+    delete lastImageBlobs[id];
+    lastAIDescription = '';
+    pendingQuickFill = null;
+    pasteFromClipboardToInput(id, onValueChange);
+  });
   browseBtn.addEventListener('click', ()=> fileInput.click());
   fileInput.addEventListener('change', ()=>{
     const file = fileInput.files[0];
     if(file){
       lastImageBlobs[id] = file;
+      lastAIDescription = '';
+      pendingQuickFill = null;
       const box = document.getElementById(id+'_prev');
       const localUrl = URL.createObjectURL(file);
       box.innerHTML = `<img src="${localUrl}" alt=""><span class="tag ok">✓ ready for AI — not uploaded anywhere</span>`;
@@ -1149,16 +1162,23 @@ async function generateDescriptionFromKnownFields(geminiKey, model, overrides, i
   return text.replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+function clearProductAIContext(){
+  lastImageBlobs = {};
+  lastAIDescription = '';
+  pendingQuickFill = null;
+  pendingGenerated = {};
+  const qfText = document.getElementById('quickFillText');
+  if(qfText) qfText.value = '';
+  const qfPrev = document.getElementById('quickFillPreview');
+  if(qfPrev) qfPrev.innerHTML = '';
+  const qfStat = document.getElementById('quickFillStatus');
+  if(qfStat) qfStat.innerHTML = '';
+  const fMainFile = document.getElementById('f_main_image_file');
+  if(fMainFile) fMainFile.value = '';
+}
+
 async function enhanceDescriptionWithAI(){
   const btn = document.getElementById('descEnhanceBtn');
-  // Reuse a description Analyze Photo / Quick Fill already fetched, if we have one — no need
-  // to spend another Gemini call for data we're already holding.
-  if(lastAIDescription){
-    form.description = lastAIDescription;
-    renderForm();
-    showToast('Applied the description AI already suggested');
-    return;
-  }
   if(!IS_SERVED){ showToast(describeAIError()); return; }
   const geminiKey = (profile.geminiKey||'').trim();
   if(!geminiKey && !serverHasApiKey){ showToast('Add a Gemini API key in ⚙️ Settings or set GEMINI_API_KEY env variable.'); return; }
@@ -1168,6 +1188,7 @@ async function enhanceDescriptionWithAI(){
     let imageInfo = null;
     try{ imageInfo = await getMainImageBase64(); }catch(e){ imageInfo = null; } // best-effort, description works without a photo too
     form.description = await generateDescriptionFromKnownFields(geminiKey, model, null, imageInfo);
+    lastAIDescription = form.description;
     renderForm();
     showToast('Description written by AI — please review');
   }catch(err){
@@ -2051,6 +2072,7 @@ document.getElementById('saveProductBtn').addEventListener('click', ()=>{
       editingIndex = null;
     }
     saveState();
+    clearProductAIContext();
     form = emptyForm();
     renderForm();
     renderList();
@@ -2079,6 +2101,7 @@ document.getElementById('saveProductBtn').addEventListener('click', ()=>{
   });
   showToast(`Added ${variationRows.length} variation${variationRows.length===1?'':'s'} to catalog list`);
   saveState();
+  clearProductAIContext();
   mode = 'single';
   variationRows = [];
   form = emptyForm();
@@ -2090,6 +2113,7 @@ document.getElementById('cancelEditBtn').addEventListener('click', ()=>{
   editingIndex = null;
   mode = 'single';
   variationRows = [];
+  clearProductAIContext();
   form = emptyForm();
   document.getElementById('formErrors').innerHTML = '';
   renderForm();
@@ -2100,6 +2124,7 @@ document.getElementById('loadSampleBtn').addEventListener('click', ()=>{
   editingIndex = null;
   mode = 'single';
   variationRows = [];
+  clearProductAIContext();
   form = Object.assign(emptyForm(), SAMPLE);
   document.getElementById('formErrors').innerHTML = '';
   renderForm();
@@ -2110,6 +2135,7 @@ document.getElementById('resetFormBtn').addEventListener('click', ()=>{
   editingIndex = null;
   mode = 'single';
   variationRows = [];
+  clearProductAIContext();
   form = emptyForm();
   document.getElementById('formErrors').innerHTML = '';
   renderForm();
@@ -2170,6 +2196,7 @@ function renderList(){
     editingIndex = parseInt(btn.dataset.edit,10);
     mode = 'single';
     variationRows = [];
+    clearProductAIContext();
     form = Object.assign(emptyForm(), products[editingIndex]);
     document.getElementById('formErrors').innerHTML = '';
     renderForm();
@@ -2634,6 +2661,7 @@ async function switchCategory(slug){
     localStorage.setItem('meesho_active_category', slug);
     applySchema(schema);
     editingIndex = null; mode = 'single'; variationRows = [];
+    clearProductAIContext();
     loadState();
     form = emptyForm();
     updateCategoryLabel();
@@ -2687,6 +2715,7 @@ document.getElementById('categoryUploadBtn').addEventListener('click', async ()=
     localStorage.setItem('meesho_active_category', data.slug);
     applySchema(data.schema);
     editingIndex = null; mode = 'single'; variationRows = [];
+    clearProductAIContext();
     loadState();
     form = emptyForm();
     updateCategoryLabel();
