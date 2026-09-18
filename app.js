@@ -1,0 +1,3877 @@
+function escapeHtml(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function infoTipHtml(text){
+  if(!text) return '';
+  return `<span class="info-tip" tabindex="0" aria-label="Field information"><span class="info-icon">i</span><span class="info-tooltip">${escapeHtml(text)}</span></span>`;
+}
+
+/* ============ Category schema — loaded dynamically from the server (any Meesho category
+   template can be uploaded and parsed into this same shape), falling back to an embedded copy
+   of the Keychains schema when there's no server to ask (opened as a plain file). ============ */
+let ACTIVE_CATEGORY = localStorage.getItem('meesho_active_category') || 'keychains';
+let ACTIVE_CATEGORY_NAME = 'Keychains';
+let GROUPS = [];
+let FIELDS = [];
+let PER_VARIANT_KEYS = [];
+let SIZE_VARIES = false;
+
+function fieldByKey(key){ return FIELDS.find(f=>f.key===key); }
+function fieldOptions(key){ const f = fieldByKey(key); return (f && (f.options || f.list)) || []; }
+
+// A handful of small, universal UX defaults the raw parsed schema doesn't carry — applied to
+// whichever category is loaded, not just Keychains.
+function applySchema(schema){
+  ACTIVE_CATEGORY_NAME = schema.name || ACTIVE_CATEGORY_NAME;
+  GROUPS = schema.groups;
+  FIELDS = schema.fields.map(f=>Object.assign({}, f));
+  FIELDS.forEach(f=>{
+    if(f.type==='select' && f.options && f.options.length===1) f.default = f.options[0];
+    if(f.key==='gst' && f.options && f.options.includes('18')) f.default = '18';
+    if(f.key==='net_quantity' && f.options && f.options.includes('1')) f.default = '1';
+    if(f.key==='dimension_unit' && f.options && f.options.includes('cm')) f.default = 'cm';
+    if(f.key==='inventory') f.default = f.default || '10';
+    if(f.key==='title') f.counter = 100;
+    if(f.key==='description') f.counter = 1500;
+    if(f.key==='brand'){
+      // Disabled by default everywhere — it must exactly match one of Meesho's platform-approved
+      // brand names for the seller's account, so free text here would just get the row rejected.
+      f.list = f.options; f.options = null; f.type = 'text'; f.disabled = true;
+      f.help = (f.help||'') + " Disabled here since it must exactly match one of Meesho's platform-approved brand names for your account — typing anything else gets the row rejected. Leave blank unless you already have an approved brand.";
+    }
+  });
+  PER_VARIANT_KEYS = ['price','return_price','mrp','weight','inventory','color','material','style_id'];
+  SIZE_VARIES = fieldOptions('size').length > 1;
+  if(SIZE_VARIES) PER_VARIANT_KEYS.push('size');
+}
+
+async function fetchCategorySchema(slug){
+  const resp = await fetch('/api/categories/' + encodeURIComponent(slug));
+  const data = await resp.json().catch(()=>({}));
+  if(!resp.ok) throw new Error(data.error || `Could not load category "${slug}"`);
+  return data.schema;
+}
+
+async function listServerCategories(){
+  const resp = await fetch('/api/categories');
+  const data = await resp.json().catch(()=>({}));
+  if(!resp.ok) throw new Error(data.error || 'Could not list categories');
+  return data.categories || [];
+}
+
+// Loads whichever category is active (persisted across reloads) from the server, falling back
+// to an embedded copy of Keychains when there's no server to ask (opened as a plain file).
+async function bootstrapCategory(){
+  if(location.protocol !== 'file:'){
+    try{
+      const schema = await fetchCategorySchema(ACTIVE_CATEGORY);
+      applySchema(schema);
+      return;
+    }catch(e){ /* server not reachable yet, or this category vanished — fall through */ }
+  }
+  ACTIVE_CATEGORY = 'keychains';
+  applySchema(FALLBACK_KEYCHAINS_SCHEMA);
+}
+
+
+// Meesho doesn't publish a full restricted-keyword list (their Instructions sheet only gives
+// examples: "smoking, other portal names, violent slogans" — the rest lives in each seller's
+// own Supplier Panel under Settings > Legal and Policies > Prohibited Items). This is a
+// best-effort local list covering those stated examples plus common cross-marketplace risk
+// categories (competitor names, restricted-substance references, weapons/violence, and
+// unverifiable promotional/medical claims — "essentials" itself got flagged as a promotional
+// puffery word on a real upload). It reduces obvious risk but is NOT authoritative — always
+// check your own Supplier Panel's Prohibited Items list before a real bulk upload.
+const DESCRIPTION_RISK_WORDS = [
+  'smoking','cigarette','cigar','tobacco','vape','vaping','nicotine','hookah',
+  'gun','pistol','rifle','ammunition','weapon','knife','blade','sword',
+  'violent','violence','kill','killing','murder','blood','gore','terror',
+  'amazon','flipkart','myntra','ajio','snapdeal','nykaa','tatacliq','jiomart','shein',
+  'cure','cures','curing','treatment','medicine','disease','fda approved','clinically proven',
+  'guaranteed','guarantee','100% genuine','best in the world','no.1','number one','no 1',
+  'essentials','must-have','must have','world class','world-class',
+];
+function findRiskyWords(text){
+  const t = (text||'').toLowerCase();
+  return DESCRIPTION_RISK_WORDS.filter(w => t.includes(w));
+}
+function updateRiskWordDisplay(key){
+  const box = document.getElementById('risk_'+key);
+  if(!box) return;
+  const hits = findRiskyWords(form[key]);
+  box.innerHTML = hits.length
+    ? `<span class="tag bad">⚠ possibly flagged by Meesho: ${hits.map(escapeHtml).join(', ')} — reword if you can</span>`
+    : '';
+}
+
+// Embedded copy of the Keychains schema — used only when there's no server to ask (opened as a
+// plain file). The server derives this same shape from the real template.xlsx at startup;
+// keep this in sync if that file ever changes.
+const FALLBACK_KEYCHAINS_SCHEMA = {
+  name: 'Keychains',
+  sheetName: 'Keychains-Fill this',
+  firstDataRow: 5,
+  groups: [
+    {key:'identity', title:'🏷️ Basic Identification (Name, Brand & Grouping)'},
+    {key:'pricing',  title:'💰 Pricing & GST Details'},
+    {key:'images',   title:'🖼️ Product Photos & Image Links'},
+    {key:'details',  title:'📐 Dimensions, Material & Attributes'},
+    {key:'legal',    title:'🏢 Manufacturer & Legal Mandatory Info'},
+  ],
+  sizeOptions: ['Free Size'],
+  fields: [
+    {key:'title', label:'Product Name', col:4, group:'identity', required:true, type:'text',
+      help:'Avoid adding weight, dimensions or price here — those have their own dedicated fields.'},
+    {key:'generic_name', label:'Generic Name', col:24, group:'identity', required:true, type:'select',
+      options:["Accessories","Bottom Wear","Garment","Keychains","Others","Sportswear","Topwear","Undergarment"],
+      help:'Standard category group classification on Meesho.'},
+    {key:'group_id', label:'Group ID', col:40, group:'identity', required:false, type:'select',
+      options:["Group 01","Group 02","Group 03","Group 04","Group 05","Group 06","Group 07","Group 08","Group 09","Group 10","Group 11","Group 12","Group 13","Group 14","Group 15","Group 16","Group 17","Group 18","Group 19","Group 20","Group 21","Group 22","Group 23","Group 24","Group 25","Group 26","Group 27","Group 28","Group 29","Group 30"],
+      help:'Pick the same Group ID for products that should be grouped together under one catalog listing on Meesho.'},
+    {key:'brand_name', label:'Brand Name', col:39, group:'identity', required:false, type:'text',
+      help:'Your store brand or registered trademark name. Optional for unbranded products.'},
+    {key:'brand', label:'Brand', col:42, group:'identity', required:false, type:'select',
+      options:["19TH JULY JEWELS","A3DG Anmol3DGallery","ACHERON","ACLIX","ACUTAS","AHMADUN","AJS","ALLIED SALES INDIA","AMAR ENTERPRISE","ASAYATI","AYVION","Afra","Ajmera Fashion","Alexus","Aliza","Allen Solly","Allymen","Alto Prints","Alyne","Amani","Amante","Amara","Ananya Fashion","Angelo","Anora","Anouk","Antra","Artful Abode","Aruna Decor","Asami","Attire Icon","Avasa","Avits","Awalkonda","Awnara","BANISTROKES","BHAVYTA","BOLSAVIRA By DesireOn","BROWN Craft","Baliye","Barstow","Being Human","Bella N Bloom","Belliza Designer","Beltly","Benares Souvenirs","Bhavyam enterprise","Bigboss","BiggSmile","Blue Star","Bruno","Buko AEC","CADDLE & TOES","CADEAU","CHAINSPRO","CHANDRANI","COPEHI","CRAFTAM","CREEKNEST...ALL THAT YOU WANT","Cadila","Campus Sutra","Cantabil","Chandrika","Climberty","Clint","Cloverbyte","Comfort Lady","Cozycato","Craft Corner","Craft Shilp","Cuberkart","Curly Tales","DEBONAIR","DECOROID","DEETHYAS","DHANVI ENTERPRISE","DOKCHAN","DOPESTREET","DaMENSCH","Dais","DecorArtisans","Deethyas FASHION","Del Luna","Devlink","Diaz","Divaas","Diyansh","Dizon","DnH","Dollar Bigboss","Dollar Lehar","Dollar Missy","Dollar Ultra","Dollar Wintercare","Dongli","Dressberry","Drippy Prints","ECLET","ELEPHANTBOAT","EVAN ENTERPRISE","Elaasa","Elite Twist Creations","Envie","Erica","Evordlss","Exprintify","FAYA","FINAL DECOR","FINZ","FITNICK","Faizam Collection","Fassy","Fenicottero","Firstcry","Floret","Fly Birds","Flying Machine","FoMe","Force","Fort Collins","Fuaark","Fubar","GARIHC ENTERPRISE","GCT","GIFTING SOLUTION","GIFTY LUXE","GKM","GLAZU","GT Gala Time","GUSTAVE","Gajal","GharBuddy","Giftingazebo","Gifts Bucket","Govind Crafted","Gritstones","Guti","HANDMADE HUES","HANNEA","HASTHIP","HATAKE","HAVENHUED","HAVLORE","HEMRAJ CRAFTS","HINSHOZ","HKL PRESENT","Haripriya Jewells","Highlander","Highlark","Hikaru","Hipop","Hivata","House Of Commons","I. K. DESIGNS","IFKA Premium","ISHYAR","ISM366","Indocraft","Infinium","Ingrid","JELECTRICALS","JEMIFLY","JKS AVENUE","Javier","Jdp Novelty","Jivika","Jogger's Park","Jompers","Juniper","K Kaparrow","KALANIDHI GIFTS","KANGUVA","KENMA","KEYKEI","KEYLYN","KIDPLAST","KIPSOME","KORTELOZ","KRAFTEDKEY","Kairangi","Kaizen Enterprises","Kajal Kurti","Kanjilal","Karly","Keyzone","KiaNic","Komli","Krishna Enterprises","Kryst","Kuki","LUXXORA","Libas","MAHSON","MAKEPHOTOGIFTS","MAYCREATE","MBA GIFT WALA","MBS DECOR","MEHJ","MIRAN AGATE","MIZI CRAFT","MOOHFAT","MT FEATHERS","Magic Art Pune","Magneto","Magpy","Mahi","Manibam Impex","Manohari","Maroon Clothing","Marwars","Mast & Harbour","Mast Kalandar","Max","Mayur Kurtis","McCarthy","Meile","Merry poppin's","Metronaut","Milan","Miniature World 3D","Mitos","Mshine","Murk Shield","N WALLETS","NAAME","NADNAM","NAIVYA","NIVIZEN","NRG","NSV","NVP ENTERPRISES","Nama","New Print Creations","Nicsy","Niya","Nobero","Noori","NuttyWears","OFIFO","ONYC","OSMLY","Om Enterprise","Optifit","Oswaal","Oswal","Oviya","PAIJASH","PALAY","PATPAT","PEACOCKRIDE","PINK GALAXY","PK ENTERPRISES","PS PRODUCTS","Pantaloons","Paper Being","Parallel World Mart","Parasnath","Parco","Pearl Ocean","Pearlish","Penti","Peter England","Pingala","Planet Popcorn","PlusS","Printality","Prita","Priyaasi","Prolook","Proxima","R.N SAMRIDHI ENTERPRISES","RAMA RADIANCE","RATNA'S","REDHORNS","RIKHEEYA","RINGZANIO","RMVRINDA","RUDRAMYST","RainSound","Rajnandini","Rare","Ravens","Raymond","Real Craft","Regy","Relicon","Retrosound","Rowaro","Rtnahsij","Rupa Jon","Rupa Macroman M Series","Rupa Macrowoman W Series","S-Line","SAANVYA","SAHIB COLLECTION","SAINEX","SANNIDHI","SANNO WORLD","SGE 89","SHILPMART","SHOBHA ENTERPRISES","SNOWIE SOFT","SRB","STHIRA","Saanjh","Saara","Saarthikart","Sadiya","Sahana","Samyak","Sanch","Sangath","Sangpri","Sassafras","Sbb Novelty","Sehaj","Serplex","Seven Square","Seyon Enterprises","Shakti Enterprises","Shanaya Atelier","Shaping Fabric","Shaun","Shining Gift","Shiv Enterprise","Shivaay","Shivika Rohilla Chess Academy","Shoolin","Shyam Enterprises","Shyaway","Siya","Smara Creations","Snitch","Sonari","Sparsh Collection","Spelerio","Spigen","Sport Sun","Sprysh","Spykar","Stellers","Stitch N love handmade with heart","Sunnah Collection House","Supvox","Suti","Svatantra","TANSTITCH","TANTIQUE","TEXTURE","THAMPZ","THE BEAUTY QUEEN","THE MEN GIFT","TRK HUB","TRK IMPEX","TU4 Enterprise","Tashis Pet Junction","Taskin","TasmAI","Techiefox","Techpro","The Bear House","The Gift Berry","Thira","Thomas Scott","Threefold Spirit","Tintin","Tokyo Talkies","Toyaana","Tracy","Trendy Gifts","Trylo","Tweens","Twin Birds","Twin Brothers","Tyrell","UJJWAL ENTERPRISES","Ugees","Uniq","United Colors Of Benetton","Urbanpop","Utsa","Uturn","VANDU ENTERPRISE","VASUUS","VATTU","VDP ENTERPRISES","VMart","VOONTO","VOSTRO","VStar","Valaris","Valmo","Varanga","Vardhman","Veirdo","Verilux","Vibhuprises","Vibry","Virom","Vishal Mega Mart","Vivas","Vymo","WZZA","Wembley","Winget","Winkeli Traders","Wishland","World Gift Mart","WowNow","Wrogn","Wyatt","YAKSHU","Yana","Yashika","Yellow Chimes","You Forever","Yousta","ZEITEL","ZELOXA","ZIRAK","ZORBES","ZUBIHS","ZYZTA","Zeba","ZemGlam","Zibuyu","Zimli","Zivame","Zudio","discopumpkin","excitingLives","flashing click","keyclub","onitore","physicswallah","pw","woonk"]},
+
+    {key:'price', label:'Meesho Price (INR)', col:6, group:'pricing', required:true, type:'number',
+      help:'Your normal selling price. Buyers at this price can return for any reason.'},
+    {key:'return_price', label:'Wrong/Defective Returns Price (INR)', col:7, group:'pricing', required:false, type:'number',
+      help:'Optional lower price where only wrong/defective returns are accepted. Meesho suggests ~₹12 below Meesho Price.'},
+    {key:'mrp', label:'MRP (INR)', col:8, group:'pricing', required:true, type:'number',
+      help:'Maximum Retail Price — must be ≥ Meesho Price.'},
+    {key:'gst', label:'GST %', col:9, group:'pricing', required:true, type:'select', options:["18","5"],
+      help:'Applicable GST tax rate percentage for this category.'},
+    {key:'hsn', label:'HSN ID', col:10, group:'pricing', required:true, type:'select',
+      options:["392640","392690","39269099","441193","600624","630710","731589","732690","830890","910111","95030010"],
+      help:'Only these HSN codes are valid for the Keychains category on Meesho.'},
+
+    {key:'main_image', label:'Image 1 (Front)', col:33, group:'images', required:true, type:'text',
+      help:'Direct URL of the front product photo generated from Meesho\'s Image Uploader.'},
+    {key:'other_image_1', label:'Image 2', col:34, group:'images', required:false, type:'text',
+      help:'Second angle, back, or detail photo link from Meesho\'s Image Uploader.'},
+    {key:'other_image_2', label:'Image 3', col:35, group:'images', required:false, type:'text',
+      help:'Third angle or lifestyle photo link from Meesho\'s Image Uploader.'},
+    {key:'other_image_3', label:'Image 4', col:36, group:'images', required:false, type:'text',
+      help:'Fourth angle or packaging photo link from Meesho\'s Image Uploader.'},
+
+    {key:'size', label:'Variation', col:5, group:'details', required:true, type:'select', options:['Free Size'],
+      help:'Size variation option (usually Free Size for keychains).'},
+    {key:'weight', label:'Net Weight (gms)', col:11, group:'details', required:true, type:'number',
+      help:'Gross packed product weight in grams.'},
+    {key:'inventory', label:'Inventory', col:12, group:'details', required:true, type:'number',
+      help:'Initial available stock quantity in your inventory.'},
+    {key:'color', label:'Color', col:23, group:'details', required:true, type:'select',
+      options:["Beige","Black","Blue","Brown","Coral","Cream","Gold","Green","Grey","Grey Melange","Khaki","Lavendar","Maroon","Metallic","Multicolor","Mustard","Navy Blue","Nude","Olive","Orange","Peach","Pink","Purple","Red","Rust","Silver","Teal","White","Yellow"],
+      help:'Primary color of the product. Select closest match from Meesho\'s official list.'},
+    {key:'material', label:'Material', col:25, group:'details', required:true, type:'select',
+      options:["Canvas","Canvas & Leather","Fabric","Faux Leather/Leatherette","Leather","MDF","Metal","PU","Plastic","Polyester","Resin","Suede","Synthetic","Wooden"],
+      help:'Primary manufacturing material.'},
+    {key:'net_quantity', label:'Net Quantity (N)', col:26, group:'details', required:true, type:'select', options:["1","10","2","3","4","5","6","7","8","9"],
+      help:'Number of items included in a single package.'},
+    {key:'dimension_unit', label:'Product Dimension Unit', col:27, group:'details', required:true, type:'select', options:["cm","ft","inch","m","mm"],
+      help:'Measurement unit used for Height, Length, and Width.'},
+    {key:'height', label:'Product Height', col:28, group:'details', required:true, type:'number',
+      help:'Height / thickness in chosen dimension units.'},
+    {key:'length', label:'Product Length', col:29, group:'details', required:true, type:'number',
+      help:'Length in chosen dimension units.'},
+    {key:'width', label:'Product Width', col:30, group:'details', required:true, type:'number',
+      help:'Width / breadth in chosen dimension units.'},
+    {key:'shape', label:'Shape', col:31, group:'details', required:true, type:'select',
+      options:["Butterfly","Circle","D Shape","Diamond","Heart","Hexagonal","Oblong","Oval","Pear","Pentagonal","Rectangular","Round","Square","Star","Triangular"],
+      help:'Visual shape geometry of the keychain.'},
+    {key:'type', label:'Type', col:32, group:'details', required:true, type:'select',
+      options:["Animal","Anime Keychains","BT21 Keychain","BTS","Bike Keychains","Car Keychain","Cartoon","Challa Keychain","Couple Keychain","Customized Keychain","Drive Safe Keychain","Evil Eye Keychain","Gas Lighter Keychain","Henna/Mehandi Keychain","Love Keychain","Music","Photo Keychain","Pop It Keychain","Smiley Keychain","Sports"],
+      help:'Theme style classification for customer filtering.'},
+    {key:'style_id', label:'Product ID / Style ID', col:37, group:'details', required:false, type:'text',
+      help:'Same across Size variants of one item, different across Color variants.'},
+    {key:'sku', label:'SKU ID', col:38, group:'details', required:false, type:'text',
+      help:'Meesho allows this to be blank (auto-generated), but we require it here to track rows in your list.'},
+    {key:'description', label:'Product Description', col:41, group:'details', required:false, type:'textarea',
+      help:"Stick to factual product details. Avoid promotional/medical claims, competitor marketplace names, or restricted words."},
+
+    {key:'country_of_origin', label:'Country of Origin', col:13, group:'legal', required:true, type:'select',
+      options:["Afghanistan","Albania","Algeria","Andorra","Angola","Antigua and Barbuda","Argentina","Armenia","Australia","Austria","Azerbaijan","Bahamas","Bahrain","Bangladesh","Barbados","Belarus","Belgium","Belize","Benin","Bhutan","Bolivia","Bosnia-Herzegovina","Botswana","Brazil","Brunei","Bulgaria","Burkina Faso","Burundi","Cabo Verde","Cambodia","Cameroon","Canada","Central African Rep","Chad","Chile","China","Colombia","Comoros","Congo","Costa Rica","Croatia","Cuba","Cyprus","Czechia","DRC Congo","Denmark","Djibouti","Dominica","Dominican Republic","Ecuador","Egypt","El Salvador","Equatorial Guinea","Eritrea","Estonia","Eswatini","Ethiopia","Fiji","Finland","France","Gabon","Gambia","Georgia","Germany","Ghana","Greece","Grenada","Guatemala","Guinea","Guinea Bissau","Guyana","Haiti","Holy See","Honduras","Hungary","Iceland","India","Indonesia","Iran","Iraq","Ireland","Israel","Italy","Jamaica","Japan","Jordan","Kazakhstan","Kenya","Kiribati","Kuwait","Kyrgyzstan","Laos","Latvia","Lebanon","Lesotho","Liberia","Libya","Liechtenstein","Lithuania","Luxembourg","Madagascar","Malawi","Malaysia","Maldives","Mali","Malta","Marshall Islands","Mauritania","Mauritius","Mexico","Micronesia","Moldova","Monaco","Mongolia","Montenegro","Morocco","Mozambique","Myanmar","Namibia","Nauru","Nepal","Netherlands","New Zealand","Nicaragua","Niger","Nigeria","North Korea","North Macedonia","Norway","Oman","Palau","Palestine State","Panama","Papua New Guinea","Paraguay","Peru","Philippines","Poland","Portugal","Qatar","Romania","Russia","Rwanda","Saint Kitts & Nevis","Saint Lucia","Samoa","San Marino","Sao Tome","Saudi Arabia","Senegal","Serbia","Seychelles","Sierra Leone","Singapore","Slovakia","Slovenia","Solomon Islands","Somalia","South Africa","South Korea","South Sudan","Spain","Sri Lanka","St Vincent","Sudan","Suriname","Sweden","Switzerland","Syria","Tajikistan","Tanzania","Thailand","Timor Leste","Togo","Tonga","Trinidad and Tobago","Tunisia","Turkey","Turkmenistan","Tuvalu","UAE","USA","Uganda","Ukraine","United Kingdom","Uruguay","Uzbekistan","Vanuatu","Venezuela","Vietnam","Yemen","Zambia","Zimbabwe"],
+      help:'Country where the product was manufactured (e.g. India).'},
+    {key:'manufacturer', label:'Manufacturer Name', col:14, group:'legal', required:true, type:'text',
+      help:'Registered legal business name of the manufacturing company.'},
+    {key:'manufacturer_address', label:'Manufacturer Address', col:15, group:'legal', required:true, type:'text',
+      help:'Complete physical address of the manufacturing facility.'},
+    {key:'manufacturer_pincode', label:'Manufacturer Pincode', col:16, group:'legal', required:true, type:'text',
+      help:'6-digit postal pincode of the manufacturer.'},
+    {key:'packer', label:'Packer Name', col:17, group:'legal', required:true, type:'text',
+      help:'Name of entity packaging the goods for distribution (same as manufacturer if self-packing).'},
+    {key:'packer_address', label:'Packer Address', col:18, group:'legal', required:true, type:'text',
+      help:'Complete physical address of the packing facility.'},
+    {key:'packer_pincode', label:'Packer Pincode', col:19, group:'legal', required:true, type:'text',
+      help:'6-digit postal pincode of the packing location.'},
+    {key:'importer', label:'Importer Name', col:20, group:'legal', required:true, type:'text',
+      help:"If you don't import, repeat your Manufacturer details here."},
+    {key:'importer_address', label:'Importer Address', col:21, group:'legal', required:true, type:'text',
+      help:'Complete physical address of the importing entity.'},
+    {key:'importer_pincode', label:'Importer Pincode', col:22, group:'legal', required:true, type:'text',
+      help:'6-digit postal pincode of the importer.'},
+  ],
+};
+
+const SAMPLE = {
+  title:'Asha Maven Premium Metal Keychain Heavy Duty Keyring for Car and Home Keys',
+  generic_name:'Keychains', group_id:'', brand_name:'Asha Maven', brand:'',
+  price:'299', return_price:'287', mrp:'599', gst:'18', hsn:'830890',
+  main_image:'https://example.com/uploads/asha-keychain-main.png',
+  other_image_1:'', other_image_2:'', other_image_3:'',
+  size:'Free Size', weight:'45', inventory:'50', color:'Silver', material:'Metal',
+  net_quantity:'1', dimension_unit:'cm', height:'1', length:'5', width:'3',
+  shape:'Circle', type:'Customized Keychain', style_id:'ASHA-STYLE-01', sku:'ASHA_KEYCHAIN_01',
+  description:'Upgrade your daily essentials with the Asha Maven Premium Metal Keychain. Crafted from high-grade zinc alloy with a sleek metallic finish, this heavy-duty keychain is designed for durability and style. It features a sturdy split ring mechanism that securely holds all your car, bike, office, and home keys together.',
+  country_of_origin:'India', manufacturer:'Asha Maven', manufacturer_address:'123 Industrial Area, Delhi', manufacturer_pincode:'110001',
+  packer:'Asha Maven', packer_address:'123 Industrial Area, Delhi', packer_pincode:'110001',
+  importer:'Asha Maven', importer_address:'123 Industrial Area, Delhi', importer_pincode:'110001',
+};
+
+/* ============ AI config ============ */
+const IS_SERVED = location.protocol !== 'file:';
+let serverHasApiKey = false;
+async function checkServerConfig(){
+  if(IS_SERVED){
+    try {
+      const r = await fetch('/api/config');
+      const d = await r.json();
+      serverHasApiKey = Boolean(d && d.hasServerApiKey);
+    } catch(e){}
+  }
+}
+const DEFAULT_GEMINI_TEXT_MODEL = 'gemini-3.8-flash';
+const DEFAULT_GEMINI_IMAGE_MODEL = 'gemini-3.1-flash-image';
+let lastImageBlobs = {};
+
+/* ============ Seller profile / defaults ============ */
+const PROFILE_KEY = 'meesho_seller_profile_v2';
+const PROFILE_FIELDS = [
+  {key:'manufacturer', label:'Manufacturer Name', default:'Asha Maven', help:'Registered legal business name of the manufacturer. Auto-fills into every new product.'},
+  {key:'manufacturer_address', label:'Manufacturer Address', default:'Ramanathapuram', help:'Complete registered address of the manufacturing facility.'},
+  {key:'manufacturer_pincode', label:'Manufacturer Pincode', default:'623504', help:'6-digit postal pincode of the manufacturer.'},
+  {key:'packer', label:'Packer Name', default:'Asha Maven', help:'Entity packaging the goods for distribution (same as manufacturer if self-packing).'},
+  {key:'packer_address', label:'Packer Address', default:'Ramanathapuram', help:'Complete physical address of the packing facility.'},
+  {key:'packer_pincode', label:'Packer Pincode', default:'623504', help:'6-digit postal pincode of the packing location.'},
+  {key:'importer', label:'Importer Name', default:'Asha Maven', help:'Name of importer if imported into India; otherwise repeat manufacturer name.'},
+  {key:'importer_address', label:'Importer Address', default:'Ramanathapuram', help:'Physical address of the importing entity.'},
+  {key:'importer_pincode', label:'Importer Pincode', default:'623504', help:'6-digit postal pincode of the importer.'},
+  {key:'country_of_origin', label:'Country of Origin', default:'India', help:'Country where products are manufactured.'},
+  {key:'brand_name', label:'Brand Name', default:'Asha Maven', help:'Your store brand or registered trademark name.'},
+  {key:'gst', label:'GST %', default:'18', help:'Default GST tax rate percentage for your catalog.'},
+  {key:'hsn', label:'HSN ID', default:'', help:'Default HSN code for GST invoicing.'},
+  {key:'dimension_unit', label:'Product Dimension Unit', default:'cm', help:'Default measurement unit (cm, mm, inch) for product dimensions.'},
+];
+let profile = {};
+// One-time migration: an earlier version of this app stored settings under
+// 'meesho_seller_profile_v1' before the field list was rebuilt to match the real Meesho
+// template. Keys/API tokens saved there would otherwise look "lost" to this version.
+const LEGACY_PROFILE_KEYS = ['meesho_seller_profile_v1'];
+const CARRYOVER_FIELDS = ['geminiKey','geminiTextModel','geminiImageModel','country_of_origin','gst','hsn'];
+function loadProfile(){
+  try{ profile = JSON.parse(localStorage.getItem(PROFILE_KEY) || '{}') || {}; }catch(e){ profile = {}; }
+  if(!profile.geminiKey){
+    for(const legacyKey of LEGACY_PROFILE_KEYS){
+      try{
+        const legacy = JSON.parse(localStorage.getItem(legacyKey) || 'null');
+        if(legacy){
+          let carried = false;
+          CARRYOVER_FIELDS.forEach(k=>{
+            if(legacy[k] && !profile[k]){ profile[k] = legacy[k]; carried = true; }
+          });
+          if(carried){ saveProfile(); showToast('Carried over your saved API keys from the previous version'); }
+        }
+      }catch(e){}
+    }
+  }
+  // Bake each PROFILE_FIELDS default into `profile` itself (not just the Settings display) —
+  // otherwise a fresh profile has no manufacturer/packer/importer details for products to inherit.
+  let bakedDefault = false;
+  PROFILE_FIELDS.forEach(pf=>{
+    if(pf.default && !profile[pf.key]){ profile[pf.key] = pf.default; bakedDefault = true; }
+  });
+  if(bakedDefault) saveProfile();
+  // Self-heal a value saved before these became dropdowns (e.g. "18%" typed into the free-text
+  // GST box, which passed straight through to a real Meesho upload and got rejected).
+  let healed = false;
+  [['gst', fieldOptions('gst')], ['hsn', fieldOptions('hsn')], ['dimension_unit', fieldOptions('dimension_unit')]].forEach(([key, list])=>{
+    const current = (profile[key]||'').toString();
+    if(current && list.length && !list.includes(current)){
+      const stripped = current.replace(/[^A-Za-z0-9]/g, '');
+      const match = list.find(o=>o===stripped) || closestOption(current, list);
+      // No safe universal fallback (a wrong HSN code is as bad as none) — clear it rather than
+      // re-baking a value that might not even apply to this category, and let validation ask for it.
+      profile[key] = match || '';
+      healed = true;
+    }
+  });
+  if(healed){ saveProfile(); showToast('Fixed an invalid saved default (e.g. GST was "18%" instead of "18") — please re-check Settings'); }
+}
+function saveProfile(){ try{ localStorage.setItem(PROFILE_KEY, JSON.stringify(profile)); }catch(e){} }
+function profileDefault(key, fallback){
+  const v = profile[key];
+  return (v !== undefined && v !== null && v !== '') ? v : (fallback || '');
+}
+
+// A few seller-default fields must match one of Meesho's fixed dropdown values exactly
+// (typing "18%" instead of "18" here is what got a real upload rejected) — render those
+// as selects instead of free text, same lists the per-product form validates against. Computed
+// fresh each time (not a fixed const) since which fields even exist depends on the active category.
+function getProfileFieldOptions(){
+  return {gst: fieldOptions('gst'), hsn: fieldOptions('hsn'), dimension_unit: fieldOptions('dimension_unit')};
+}
+
+function renderSettings(){
+  const wrap = document.getElementById('settingsFields');
+  const profileFieldOptions = getProfileFieldOptions();
+  wrap.innerHTML = `<div class="grid">` + PROFILE_FIELDS.map(pf=>{
+    const val = profileDefault(pf.key, pf.default).toString();
+    const options = profileFieldOptions[pf.key];
+    const control = options
+      ? `<select id="pf_${pf.key}">${options.map(o=>`<option value="${escapeHtml(o)}"${o===val?' selected':''}>${escapeHtml(o)}</option>`).join('')}</select>`
+      : `<input id="pf_${pf.key}" type="text" value="${val.replace(/"/g,'&quot;')}" autocomplete="off">`;
+    return `<div class="field">
+      <label>
+        <span class="label-title">${pf.label}</span>
+        ${infoTipHtml(pf.help)}
+      </label>
+      ${control}
+    </div>`;
+  }).join('') + `</div>`;
+  document.getElementById('pf_geminiKey').value = profile.geminiKey || '';
+  document.getElementById('pf_geminiTextModel').value = profile.geminiTextModel || DEFAULT_GEMINI_TEXT_MODEL;
+  document.getElementById('pf_geminiImageModel').value = profile.geminiImageModel || DEFAULT_GEMINI_IMAGE_MODEL;
+}
+
+document.getElementById('saveSettingsBtn').addEventListener('click', ()=>{
+  PROFILE_FIELDS.forEach(pf=>{ profile[pf.key] = document.getElementById('pf_'+pf.key).value.trim(); });
+  profile.geminiKey = document.getElementById('pf_geminiKey').value.trim();
+  profile.geminiTextModel = document.getElementById('pf_geminiTextModel').value.trim() || DEFAULT_GEMINI_TEXT_MODEL;
+  profile.geminiImageModel = document.getElementById('pf_geminiImageModel').value.trim() || DEFAULT_GEMINI_IMAGE_MODEL;
+  saveProfile();
+  showToast('Settings saved');
+});
+
+/* ============ State ============ */
+const LEGACY_KEYCHAINS_STORAGE_KEY = 'meesho_keychain_catalog_v2';
+function storageKeyForCategory(slug){ return 'meesho_catalog_v2__' + slug; }
+let products = [];
+let editingIndex = null;
+let mode = 'single'; // 'single' | 'variations'
+let variationRows = [];
+// Manufacturer/Packer/Importer starts collapsed since it's usually pre-filled from Settings
+// and rarely needs attention — but expands automatically if a mandatory field inside is missing.
+let collapsedGroups = new Set(['legal']);
+function expandGroup(groupKey){
+  if(!collapsedGroups.has(groupKey)) return;
+  collapsedGroups.delete(groupKey);
+  const body = document.getElementById('groupbody_'+groupKey);
+  const header = document.querySelector(`.accordion-header[data-group="${groupKey}"]`);
+  if(body) body.style.display = '';
+  if(header){ const chev = header.querySelector('.accordion-chevron'); if(chev) chev.textContent = '▾'; }
+}
+function scrollToFirstInvalid(){
+  const el = document.querySelector('.field.invalid');
+  if(el) el.scrollIntoView({behavior:'smooth', block:'center'});
+}
+
+function getFormattedTimestamp(d){
+  const now = d ? new Date(d) : new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const day = pad(now.getDate());
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const month = months[now.getMonth()];
+  const year = now.getFullYear();
+  const hh = pad(now.getHours());
+  const mm = pad(now.getMinutes());
+  const ss = pad(now.getSeconds());
+  return `${day} ${month} ${year}, ${hh}:${mm}:${ss}`;
+}
+
+function getFileTimestamp(){
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  return `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+}
+
+function loadState(){
+  try{
+    let raw = localStorage.getItem(storageKeyForCategory(ACTIVE_CATEGORY));
+    if(!raw && ACTIVE_CATEGORY==='keychains') raw = localStorage.getItem(LEGACY_KEYCHAINS_STORAGE_KEY); // one-time migration
+    products = raw ? (JSON.parse(raw) || []) : [];
+    products.forEach(p => {
+      if(!p._timestamp && p._updatedAt) p._timestamp = getFormattedTimestamp(p._updatedAt);
+      else if(!p._timestamp) p._timestamp = getFormattedTimestamp();
+    });
+  }catch(e){ products = []; }
+}
+function saveState(){
+  try{ localStorage.setItem(storageKeyForCategory(ACTIVE_CATEGORY), JSON.stringify(products)); }catch(e){}
+}
+
+function emptyForm(){
+  const f = {};
+  FIELDS.forEach(fd => f[fd.key] = profileDefault(fd.key, fd.default));
+  return f;
+}
+function newVariationRow(){
+  return {color:'', material:'', style_id:'', skuSuffix:'', price:'', return_price:'', mrp:'', weight:'', inventory: profileDefault('inventory','10'),
+    size: SIZE_VARIES ? fieldOptions('size')[0] : '',
+    main_image:'', other_image_1:'', other_image_2:'', other_image_3:''};
+}
+let form = emptyForm();
+let formFlaggedKeys = new Set();
+let wizardFlaggedItems = {};
+
+// Major Search Keywords & Seller Hints State
+let productKeywords = []; // high-volume search queries for this product on Meesho
+let sellerHints = [];     // seller-provided USPs, highlights, or key points
+let aiSuggestedHints = []; // quick-add hint pills suggested by AI
+let isExtractingKeywords = false;
+
+function clearProductAIContext(){
+  lastImageBlobs = {};
+  lastAIDescription = '';
+  pendingQuickFill = null;
+  pendingGenerated = {};
+  wizardFlaggedItems = {};
+  formFlaggedKeys = new Set();
+  activeErrorFixContext = '';
+  productKeywords = [];
+  sellerHints = [];
+  aiSuggestedHints = [];
+  isExtractingKeywords = false;
+  if(typeof updateWizardFlaggedHeader === 'function') updateWizardFlaggedHeader();
+  const qfText = document.getElementById('quickFillText');
+  if(qfText) qfText.value = '';
+  const qfPrev = document.getElementById('quickFillPreview');
+  if(qfPrev) qfPrev.innerHTML = '';
+  const qfStat = document.getElementById('quickFillStatus');
+  if(qfStat) qfStat.innerHTML = '';
+  const fMainFile = document.getElementById('f_main_image_file');
+  if(fMainFile) fMainFile.value = '';
+}
+
+/* ============ Image control: manual URL only — Meesho doesn't reliably accept links from
+   third-party hosts (only its own Image Uploader), so this app no longer auto-uploads
+   anywhere. Every image URL is a link you paste yourself. The Main Image field additionally
+   lets you Browse a local photo purely to feed the AI analysis/generation features — that
+   file never gets uploaded or turned into a URL by this app. ============ */
+let previewTimers = {};
+
+async function pasteFromClipboardToInput(id, onValueChange){
+  const input = document.getElementById(id);
+  if(!input) return;
+  let text = '';
+  try{
+    if(navigator.clipboard && navigator.clipboard.readText){
+      text = await navigator.clipboard.readText();
+    }
+  }catch(e){}
+
+  if(text && text.trim()){
+    input.value = text.trim();
+    if(onValueChange) onValueChange(input.value);
+    updateImgPreview(id, input.value);
+    const fieldWrap = input.closest('.field');
+    if(fieldWrap) fieldWrap.classList.remove('invalid');
+    showToast('📋 Link pasted from clipboard');
+  } else {
+    input.focus();
+    input.select();
+    showToast('Clipboard access unavailable — press Ctrl+V / Cmd+V to paste');
+  }
+}
+
+function imageUrlInputHtml(id, value, isTable){
+  const val = (value||'').toString().replace(/"/g,'&quot;');
+  if(isTable){
+    return `<div class="row-inline" style="gap:4px;flex-wrap:nowrap;">
+      <input id="${id}" type="text" value="${val}" autocomplete="off" placeholder="Paste link" style="width:110px;">
+      <button type="button" class="icon-btn" id="${id}_paste" title="Paste link from clipboard">📋</button>
+    </div>
+    <div class="img-preview" id="${id}_prev"></div>`;
+  }
+  return `<div class="row-inline" style="gap:6px;">
+    <input id="${id}" type="text" value="${val}" autocomplete="off" placeholder="Paste the link from Meesho's Image Uploader" style="flex:1;">
+    <button type="button" class="btn btn-outline btn-sm" id="${id}_paste" title="Paste link from clipboard">📋 Paste link</button>
+  </div>
+  <div class="img-preview" id="${id}_prev"></div>`;
+}
+
+function mainImageControlHtml(id, value){
+  const val = (value||'').toString().replace(/"/g,'&quot;');
+  return `<div class="row-inline" style="gap:6px;flex-wrap:wrap;">
+      <input id="${id}" type="text" value="${val}" autocomplete="off" placeholder="Paste the link from Meesho's Image Uploader" style="flex:1;min-width:200px;">
+      <button type="button" class="btn btn-outline btn-sm" id="${id}_paste" title="Paste link from clipboard">📋 Paste link</button>
+      <button type="button" class="btn btn-outline btn-sm" id="${id}_browse" title="Choose local image file for AI analysis">📷 Choose photo for AI</button>
+      <input type="file" accept="image/*" id="${id}_file" style="display:none;">
+    </div>
+    <div class="img-preview" id="${id}_prev"></div>`;
+}
+
+function updateImgPreview(id, url){
+  const box = document.getElementById(id+'_prev');
+  if(!box) return;
+  clearTimeout(previewTimers[id]);
+  previewTimers[id] = setTimeout(()=>{
+    url = (url||'').trim();
+    if(!url){ box.innerHTML=''; return; }
+    box.innerHTML = `<img src="${url.replace(/"/g,'&quot;')}" alt=""><span class="tag idle">checking…</span>`;
+    const img = box.querySelector('img');
+    img.onload = ()=>{ const t=box.querySelector('.tag'); if(t) t.outerHTML = `<span class="tag ok">✓ loads OK</span>`; };
+    img.onerror = ()=>{ const t=box.querySelector('.tag'); if(t) t.outerHTML = `<span class="tag bad">✗ couldn't load — check it's a direct public link</span>`; };
+  }, 400);
+}
+
+// Plain URL field — with clipboard paste button
+function wireImageUrlInput(id, onValueChange){
+  const input = document.getElementById(id);
+  const pasteBtn = document.getElementById(id+'_paste');
+  if(!input) return;
+  input.addEventListener('input', ()=>{ onValueChange(input.value); updateImgPreview(id, input.value); });
+  if(pasteBtn) pasteBtn.addEventListener('click', ()=> pasteFromClipboardToInput(id, onValueChange));
+  updateImgPreview(id, input.value);
+}
+
+// Main Image field only — includes Paste Link and Browse for AI photo tools
+function wireMainImageControl(id, onValueChange){
+  const input = document.getElementById(id);
+  const pasteBtn = document.getElementById(id+'_paste');
+  const browseBtn = document.getElementById(id+'_browse');
+  const fileInput = document.getElementById(id+'_file');
+  if(!input) return;
+  input.addEventListener('input', ()=>{
+    delete lastImageBlobs[id];
+    lastAIDescription = '';
+    pendingQuickFill = null;
+    onValueChange(input.value);
+    updateImgPreview(id, input.value);
+  });
+  if(pasteBtn) pasteBtn.addEventListener('click', ()=> {
+    delete lastImageBlobs[id];
+    lastAIDescription = '';
+    pendingQuickFill = null;
+    pasteFromClipboardToInput(id, onValueChange);
+  });
+  browseBtn.addEventListener('click', ()=> fileInput.click());
+  fileInput.addEventListener('change', ()=>{
+    const file = fileInput.files[0];
+    if(file){
+      lastImageBlobs[id] = file;
+      lastAIDescription = '';
+      pendingQuickFill = null;
+      const box = document.getElementById(id+'_prev');
+      const localUrl = URL.createObjectURL(file);
+      box.innerHTML = `<img src="${localUrl}" alt=""><span class="tag ok">✓ ready for AI — not uploaded anywhere</span>`;
+      if(IS_SERVED && ((profile.geminiKey||'').trim() || serverHasApiKey)){
+        triggerKeywordExtractionFromImage(true);
+        enhanceFreeTextWithAI();
+      }
+    }
+    fileInput.value = '';
+  });
+  input.addEventListener('change', ()=>{
+    if(input.value.trim().startsWith('http') && IS_SERVED && ((profile.geminiKey||'').trim() || serverHasApiKey) && !productKeywords.length){
+      triggerKeywordExtractionFromImage(false);
+    }
+  });
+  updateImgPreview(id, input.value);
+}
+
+// Variation-row photo field: includes Paste Link button and Browse for AI photo tools
+function variationImageControlHtml(id, value){
+  const val = (value||'').toString().replace(/"/g,'&quot;');
+  return `<div class="row-inline" style="gap:4px;flex-wrap:nowrap;">
+      <input id="${id}" type="text" value="${val}" autocomplete="off" placeholder="Paste link" style="width:110px;">
+      <button type="button" class="icon-btn" id="${id}_paste" title="Paste link from clipboard">📋</button>
+      <button type="button" class="icon-btn" id="${id}_browse" title="Choose a photo of THIS color for AI">📷</button>
+      <input type="file" accept="image/*" id="${id}_file" style="display:none;">
+    </div>
+    <div class="img-preview" id="${id}_prev"></div>`;
+}
+function wireVariationImageControl(id, i){
+  const input = document.getElementById(id);
+  const pasteBtn = document.getElementById(id+'_paste');
+  const browseBtn = document.getElementById(id+'_browse');
+  const fileInput = document.getElementById(id+'_file');
+  if(!input) return;
+  input.addEventListener('input', ()=>{ variationRows[i].main_image = input.value; updateImgPreview(id, input.value); });
+  updateImgPreview(id, input.value);
+  if(pasteBtn) pasteBtn.addEventListener('click', ()=> pasteFromClipboardToInput(id, (val)=>{ variationRows[i].main_image = val; }));
+  browseBtn.addEventListener('click', ()=> fileInput.click());
+  fileInput.addEventListener('change', ()=>{
+    const file = fileInput.files[0];
+    if(file){
+      lastImageBlobs[id] = file;
+      const box = document.getElementById(id+'_prev');
+      const localUrl = URL.createObjectURL(file);
+      box.innerHTML = `<img src="${localUrl}" alt=""><span class="tag ok">✓ ready for AI</span>`;
+      if(IS_SERVED && (profile.geminiKey||'').trim()) analyzeVariationPhotoWithAI(i, id);
+    }
+    fileInput.value = '';
+  });
+}
+
+/* ============ Gemini AI helpers (via local server proxy — see server.js) ============ */
+function blobToBase64(blob){
+  return new Promise((resolve, reject)=>{
+    const reader = new FileReader();
+    reader.onload = ()=> resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+function base64ToBlob(b64, mimeType){
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], {type: mimeType || 'image/png'});
+}
+
+async function getMainImageBase64(){
+  const blob = lastImageBlobs['f_main_image'];
+  if(blob){ return {base64: await blobToBase64(blob), mimeType: blob.type || 'image/png'}; }
+  const url = (form.main_image||'').trim();
+  if(!url) throw new Error('Add a Main Image first (Browse a photo, or paste a URL).');
+  const resp = await fetch('/api/fetch-image?url=' + encodeURIComponent(url));
+  const data = await resp.json().catch(()=>({}));
+  if(!resp.ok) throw new Error(data.error || 'Could not fetch that image URL');
+  return {base64: data.data, mimeType: data.mimeType};
+}
+
+async function callGeminiViaProxy(apiKey, model, input){
+  const resp = await fetch('/api/gemini', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({apiKey, model, input}),
+  });
+  let data = await resp.json().catch(()=>({}));
+  if(Array.isArray(data)) data = data[0] || {}; // Google sometimes wraps error responses in an array
+  if(!resp.ok){
+    throw new Error((data && data.error && (data.error.message || data.error)) || `Gemini request failed (${resp.status})`);
+  }
+  return data;
+}
+
+async function callGeminiText(apiKey, model, base64, mimeType, prompt){
+  const data = await callGeminiViaProxy(apiKey, model, [
+    {type:'text', text: prompt},
+    {type:'image', mime_type: mimeType, data: base64},
+  ]);
+  if(data && typeof data.text === 'string' && data.text) return data.text;
+  for(const step of (data.steps||[])){
+    for(const c of (step.content||[])){
+      if(c.type === 'text' && c.text) return c.text;
+    }
+  }
+  throw new Error('No text returned from Gemini');
+}
+
+async function callGeminiTextOnly(apiKey, model, prompt){
+  const data = await callGeminiViaProxy(apiKey, model, [{type:'text', text: prompt}]);
+  if(data && typeof data.text === 'string' && data.text) return data.text;
+  for(const step of (data.steps||[])){
+    for(const c of (step.content||[])){
+      if(c.type === 'text' && c.text) return c.text;
+    }
+  }
+  throw new Error('No text returned from Gemini');
+}
+
+async function callGeminiImage(apiKey, model, base64, mimeType, prompt){
+  const data = await callGeminiViaProxy(apiKey, model, [
+    {type:'text', text: prompt},
+    {type:'image', mime_type: mimeType, data: base64},
+  ]);
+  for(const step of (data.steps||[])){
+    for(const c of (step.content||[])){
+      if(c.type === 'image' && c.data) return {data: c.data, mimeType: c.mime_type || 'image/png'};
+    }
+  }
+  throw new Error('No image returned from Gemini');
+}
+
+function describeAIError(err){
+  if(!IS_SERVED) return "AI features need the server connection. Please ensure the application server is running.";
+  if(err instanceof TypeError) return "Couldn't reach the server. Please check your connection.";
+  const msg = err && err.message ? err.message : 'Something went wrong.';
+  if(msg.includes('authentication') || msg.includes('credentials') || msg.includes('OAuth') || msg.includes('API key') || msg.includes('UNAUTHENTICATED') || msg.includes('ACCESS_TOKEN')){
+    return "Gemini API authentication error: Please provide a valid Gemini API Key in ⚙️ Settings (get a free key at https://aistudio.google.com/app/apikey).";
+  }
+  return msg;
+}
+
+// Finds the closest matching option from a controlled dropdown list, so an AI-suggested
+// free-text guess ("silver", "silver metallic") still lands on a value Meesho will accept.
+function closestOption(value, options){
+  if(!value) return null;
+  const v = value.toString().trim().toLowerCase();
+  let exact = options.find(o=>o.toLowerCase()===v);
+  if(exact) return exact;
+  let partial = options.find(o=>v.includes(o.toLowerCase()) || o.toLowerCase().includes(v));
+  return partial || null;
+}
+
+// HSN codes are arbitrary numbers with no textual "closeness" — Gemini's best-guess code
+// almost never exactly matches one of the 11 codes valid for this category, so closestOption
+// alone leaves the field blank most of the time. Since the field can only legally hold one of
+// those 11 values anyway, fall back to the seller's configured default rather than nothing.
+function resolveHsnGuess(guess){
+  return closestOption((guess||'').toString(), fieldOptions('hsn')) || profileDefault('hsn', '');
+}
+
+// Scoped version of the combined Enhance flow for one color variant's own photo — each row can look
+// different (a red keychain isn't the same photo as the blue one), so this only ever touches
+// that row's Color/Material and leaves shared fields (title, pricing, etc.) alone.
+async function analyzeVariationPhotoWithAI(i, id){
+  const box = document.getElementById(id+'_prev');
+  const geminiKey = (profile.geminiKey||'').trim();
+  if(!IS_SERVED || (!geminiKey && !serverHasApiKey) || !box) return;
+  const blob = lastImageBlobs[id];
+  if(!blob) return;
+  box.insertAdjacentHTML('beforeend', ' <span class="tag idle">analyzing…</span>');
+  try{
+    const base64 = await blobToBase64(blob);
+    const mimeType = blob.type || 'image/png';
+    const model = (profile.geminiTextModel || DEFAULT_GEMINI_TEXT_MODEL).trim();
+    const prompt = `This photo shows one color variant of a keychain product${form.title.trim()?` (product line: "${form.title.trim()}")`:''}. Respond with ONLY a JSON object (no markdown) with "color" (single closest to: ${fieldOptions('color').join(', ')}) and "material" (single closest to: ${fieldOptions('material').join(', ')}) — omit a key you genuinely cannot tell from the photo.`;
+    const respText = await callGeminiText(geminiKey, model, base64, mimeType, prompt);
+    let parsed = null;
+    try{ parsed = JSON.parse(respText.replace(/^```json\s*|```\s*$/g,'').trim()); }catch(e){ parsed = null; }
+    const applied = [];
+    if(parsed){
+      const colorMatch = closestOption(parsed.color, fieldOptions('color'));
+      if(colorMatch && !variationRows[i].color){ variationRows[i].color = colorMatch; applied.push('Color'); }
+      const materialMatch = closestOption(parsed.material, fieldOptions('material'));
+      if(materialMatch && !variationRows[i].material){ variationRows[i].material = materialMatch; applied.push('Material'); }
+    }
+    if(applied.length){ renderVariationTable(); showToast(`Row ${i+1}: filled ${applied.join(', ')} from its photo`); }
+    else{ const t = box.querySelector('.tag.idle'); if(t) t.outerHTML = '<span class="tag idle">Nothing new to fill from that photo</span>'; }
+  }catch(err){
+    const t = box.querySelector('.tag.idle');
+    if(t) t.outerHTML = `<span class="tag bad">✗ ${escapeHtml(describeAIError(err))}</span>`;
+  }
+}
+
+/* ============ Major Search Keywords & Seller Hints Extraction ============ */
+function renderKeywordChipsHtml(){
+  if(!productKeywords.length){
+    return `<span style="font-size:12px;color:var(--muted);font-style:italic;">No search keywords added yet. Upload a photo or click "Suggest Keywords" above.</span>`;
+  }
+  const descText = ((form.description || (document.getElementById('f_description')?.value) || '')).toLowerCase();
+  return productKeywords.map((kw, i)=>{
+    const cleanKw = kw.toLowerCase().trim();
+    const isCovered = cleanKw && descText.includes(cleanKw);
+    return `<span class="keyword-chip search-kw ${isCovered?'covered':''}" title="${isCovered?'Covered in description text':'Not yet in description text'}">
+      <span>${escapeHtml(kw)}</span>
+      <button type="button" class="chip-remove" data-del-kw="${i}" title="Remove keyword">&times;</button>
+    </span>`;
+  }).join('');
+}
+
+function renderHintChipsHtml(){
+  if(!sellerHints.length){
+    return `<span style="font-size:12px;color:var(--muted);font-style:italic;">No seller hints added yet. Add custom hints below (e.g. waterproof, gift box) to emphasize specific USPs.</span>`;
+  }
+  const descText = ((form.description || (document.getElementById('f_description')?.value) || '')).toLowerCase();
+  return sellerHints.map((hint, i)=>{
+    const cleanHint = hint.toLowerCase().trim();
+    const isCovered = cleanHint && descText.includes(cleanHint);
+    return `<span class="keyword-chip seller-hint ${isCovered?'covered':''}" title="${isCovered?'Covered in description text':'Not yet in description text'}">
+      <span>💡 ${escapeHtml(hint)}</span>
+      <button type="button" class="chip-remove" data-del-hint="${i}" title="Remove hint">&times;</button>
+    </span>`;
+  }).join('');
+}
+
+function updateKeywordCoverageDisplay(){
+  const descText = ((form.description || (document.getElementById('f_description')?.value) || '')).toLowerCase();
+  const allTargets = [
+    ...productKeywords.map(k=>({ text: k, isHint: false })),
+    ...sellerHints.map(h=>({ text: h, isHint: true }))
+  ];
+  const statsEl = document.getElementById('keywordCoverageStats');
+  const barEl = document.getElementById('keywordCoverageBarFill');
+  const badgesEl = document.getElementById('keywordCoverageBadges');
+  if(!statsEl || !barEl || !badgesEl) return;
+
+  if(!allTargets.length){
+    statsEl.textContent = '0 / 0';
+    barEl.style.width = '0%';
+    badgesEl.innerHTML = '<span style="font-size:11px;color:var(--muted);">Add keywords or hints above to track listing search discoverability.</span>';
+    return;
+  }
+
+  let coveredCount = 0;
+  const badgeHtml = allTargets.map(item=>{
+    const clean = item.text.toLowerCase().trim();
+    const covered = clean && descText.includes(clean);
+    if(covered) coveredCount++;
+    return `<span style="font-size:11px;padding:2px 8px;border-radius:4px;display:inline-flex;align-items:center;gap:3px;${covered ? 'background:#DCFCE7;color:#15803D;font-weight:600;' : 'background:var(--card);border:1px solid var(--border);color:var(--muted);'}">
+      ${covered ? '✓' : '○'} ${escapeHtml(item.text)}
+    </span>`;
+  }).join('');
+
+  const pct = Math.round((coveredCount / allTargets.length) * 100);
+  statsEl.textContent = `${coveredCount} / ${allTargets.length} covered (${pct}%)`;
+  statsEl.style.color = pct >= 80 ? 'var(--ok)' : (pct >= 50 ? 'var(--warn)' : 'var(--pink-dark)');
+  barEl.style.width = `${pct}%`;
+  badgesEl.innerHTML = badgeHtml;
+
+  // Live-toggle chip covered class in the DOM
+  document.querySelectorAll('#keywordChipsList .keyword-chip').forEach((chip, i)=>{
+    const kw = productKeywords[i];
+    if(kw) chip.classList.toggle('covered', descText.includes(kw.toLowerCase().trim()));
+  });
+  document.querySelectorAll('#hintsChipsList .keyword-chip').forEach((chip, i)=>{
+    const hint = sellerHints[i];
+    if(hint) chip.classList.toggle('covered', descText.includes(hint.toLowerCase().trim()));
+  });
+}
+
+function renderKeywordSeoCard(){
+  const chipsList = document.getElementById('keywordChipsList');
+  const hintsList = document.getElementById('hintsChipsList');
+  const kwCount = document.getElementById('keywordCount');
+  const hintsCount = document.getElementById('hintsCount');
+  const refreshBtn = document.getElementById('refreshKeywordsBtn');
+
+  if(chipsList) chipsList.innerHTML = renderKeywordChipsHtml();
+  if(hintsList) hintsList.innerHTML = renderHintChipsHtml();
+  if(kwCount) kwCount.textContent = productKeywords.length;
+  if(hintsCount) hintsCount.textContent = sellerHints.length;
+  if(refreshBtn) refreshBtn.textContent = productKeywords.length ? '🔄 Refresh Keywords' : '🔍 Suggest Keywords from Photo';
+
+  // Re-wire delete listeners
+  document.querySelectorAll('[data-del-kw]').forEach(btn=>{
+    btn.onclick = (e)=>{
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.delKw, 10);
+      productKeywords.splice(idx, 1);
+      renderKeywordSeoCard();
+    };
+  });
+  document.querySelectorAll('[data-del-hint]').forEach(btn=>{
+    btn.onclick = (e)=>{
+      e.stopPropagation();
+      const idx = parseInt(btn.dataset.delHint, 10);
+      sellerHints.splice(idx, 1);
+      renderKeywordSeoCard();
+    };
+  });
+
+  updateKeywordCoverageDisplay();
+}
+
+async function extractKeywordsAndHintsFromImage(forceImageInfo){
+  if(!IS_SERVED) throw new Error(describeAIError());
+  const geminiKey = (profile.geminiKey||'').trim();
+  if(!geminiKey && !serverHasApiKey){
+    throw new Error('Add a Gemini API key in ⚙️ Settings or configure GEMINI_API_KEY.');
+  }
+  const model = (profile.geminiTextModel || DEFAULT_GEMINI_TEXT_MODEL).trim();
+  let imageInfo = forceImageInfo || null;
+  if(!imageInfo){
+    try{ imageInfo = await getMainImageBase64(); }catch(e){ imageInfo = null; }
+  }
+
+  const prompt = `You are an expert Indian Ecommerce SEO & Catalog Specialist for Meesho, Flipkart, and Amazon India.
+Category: "${ACTIVE_CATEGORY_NAME}"
+Product Name: "${form.title || ''}"
+Attributes: Material: "${form.material || ''}", Color: "${form.color || ''}", Shape: "${form.shape || ''}", Type: "${form.type || ''}"
+${imageInfo ? 'A reference product photo is attached. Analyze the product visually to determine style, finish, materials, usage, and design.' : 'Analyze the product attributes.'}
+
+TASK:
+1. Suggest 8-12 HIGH-VOLUME, FREQUENTLY SEARCHED KEYWORDS and buyer shopping queries that Indian consumers use on Meesho to find and purchase this item (e.g. usage like bike/car/scooter key ring, aesthetic/couple/custom style, material combinations, gifting for men/friends/boyfriend, durability/hook type). Each keyword should be 2-4 words long (e.g. "car keychain for men", "bike key ring", "leather keychain hook", "aesthetic gift keychain", "heavy duty metal key chain").
+2. Suggest 3-5 seller feature highlights or hints visible or inferred from the photo (e.g., "Heavy-duty zinc alloy hook", "Rust-resistant chrome finish", "Compact pocket-friendly design", "Gift box ready").
+
+Return ONLY a valid JSON object matching this schema (no markdown, no backticks, no code fences):
+{
+  "keywords": [
+    "keyword 1",
+    "keyword 2"
+  ],
+  "suggested_hints": [
+    "hint 1",
+    "hint 2"
+  ]
+}`;
+
+  const respText = imageInfo
+    ? await callGeminiText(geminiKey, model, imageInfo.base64, imageInfo.mimeType, prompt)
+    : await callGeminiTextOnly(geminiKey, model, prompt);
+
+  let parsed = null;
+  try{
+    parsed = JSON.parse(respText.replace(/^```json\s*|```\s*$/g,'').trim());
+  }catch(e){
+    const clean = respText.replace(/^```json\s*|```\s*$/g,'').trim();
+    const kws = [...clean.matchAll(/"([^"]{3,40})"/g)].map(m=>m[1]).filter(k=>!['keywords','suggested_hints'].includes(k));
+    if(kws.length) parsed = { keywords: kws.slice(0, 10), suggested_hints: [] };
+  }
+  return parsed;
+}
+
+async function triggerKeywordExtractionFromImage(showToastAlert = false){
+  const statusEl = document.getElementById('keywordStatus');
+  const refreshBtn = document.getElementById('refreshKeywordsBtn');
+  if(isExtractingKeywords) return;
+  isExtractingKeywords = true;
+  if(refreshBtn){ refreshBtn.disabled = true; refreshBtn.textContent = '🔍 Analyzing…'; }
+  if(statusEl) statusEl.innerHTML = '<span class="tag idle">🔍 Analyzing photo for top Meesho buyer search keywords…</span>';
+
+  try{
+    const result = await extractKeywordsAndHintsFromImage();
+    if(result && Array.isArray(result.keywords) && result.keywords.length){
+      const existing = new Set(productKeywords.map(k=>k.toLowerCase().trim()));
+      result.keywords.forEach(kw=>{
+        const clean = kw.trim();
+        if(clean && !existing.has(clean.toLowerCase())){
+          productKeywords.push(clean);
+          existing.add(clean.toLowerCase());
+        }
+      });
+      if(Array.isArray(result.suggested_hints)){
+        aiSuggestedHints = result.suggested_hints;
+      }
+      if(statusEl) statusEl.innerHTML = `<span class="tag ok">✓ Discovered ${result.keywords.length} major search keywords from photo!</span>`;
+      if(showToastAlert) showToast(`🔍 Discovered ${result.keywords.length} search keywords from photo!`);
+    } else {
+      if(statusEl) statusEl.innerHTML = '<span class="tag idle">No new keywords identified</span>';
+    }
+  }catch(err){
+    if(statusEl) statusEl.innerHTML = `<span class="tag bad">✗ ${escapeHtml(describeAIError(err))}</span>`;
+  }finally{
+    isExtractingKeywords = false;
+    if(refreshBtn){ refreshBtn.disabled = false; refreshBtn.textContent = productKeywords.length ? '🔄 Refresh Keywords' : '🔍 Suggest Keywords from Photo'; }
+    renderKeywordSeoCard();
+  }
+}
+
+/* ============ Quick Fill: describe the product in free text (typed or spoken) ============ */
+async function generateDescriptionFromKnownFields(geminiKey, model, overrides, imageInfo, customKeywords, customHints){
+  const src = Object.assign({}, form, overrides||{});
+  const bits = [];
+  if((src.color||'').trim()) bits.push(`Color: ${src.color.trim()}`);
+  if((src.material||'').trim()) bits.push(`Material: ${src.material.trim()}`);
+  if((src.shape||'').trim()) bits.push(`Shape: ${src.shape.trim()}`);
+  if((src.type||'').trim()) bits.push(`Type: ${src.type.trim()}`);
+  if((src.weight||'').trim()) bits.push(`Weight: ${src.weight.trim()}g`);
+  if((src.net_quantity||'').trim()) bits.push(`Net Quantity: ${src.net_quantity.trim()}`);
+  const context = bits.length ? bits.join(', ') : `a ${ACTIVE_CATEGORY_NAME} item`;
+  const photoInstruction = imageInfo ? ' A photo of the actual product is attached — base the visual details (shape, finish, design elements) on what the photo actually shows, not just the attributes list.' : '';
+
+  const kwsToUse = (customKeywords && customKeywords.length) ? customKeywords : productKeywords;
+  const hintsToUse = (customHints && customHints.length) ? customHints : sellerHints;
+
+  let keywordSection = '';
+  if(kwsToUse.length){
+    keywordSection = `\nCRITICAL SEARCH DISCOVERABILITY & SEO MANDATE:
+You MUST naturally incorporate and weave ALL of these high-volume buyer search keywords into the description text (in both the opening sentences, feature bullets, and care details):
+${kwsToUse.map(k=>`• "${k}"`).join('\n')}
+Make sure each keyword flows naturally in professional English sentences and bullet points without awkward keyword stuffing.`;
+  }
+
+  let hintSection = '';
+  if(hintsToUse.length){
+    hintSection = `\nSELLER HIGHLIGHTS & KEY USPs TO EMPHASIZE:
+The seller has specifically requested to highlight these custom details / hints in the features and product details:
+${hintsToUse.map(h=>`• ${h}`).join('\n')}`;
+  }
+
+  const prompt = `Write an engaging, high-converting Meesho product listing description for this item, based on these known attributes: ${context}.${photoInstruction}${keywordSection}${hintSection}
+
+Target around 900-1400 characters total (Meesho allows up to 10000, but keep it punchy, engaging, and professional).
+Structure it cleanly:
+1. 2-3 engaging opening sentences introducing the product, its utility (e.g. for car, bike, office, home keys), material finish, and elegance, naturally incorporating the main search terms.
+2. "Key Features & Highlights:" section with 5-8 bullet points (one per line, starting with "- ") detailing material quality, build durability, ergonomic design, use cases, gifting suitability (birthday, anniversary, friends, family), and packaging.
+3. "Care & Specifications:" 2-4 bullet points with maintenance tips, package contents, and dimensions.
+
+DO NOT invent unstated specific metrics or fake guarantees.
+DO NOT prepend "Title:", "Product Name:", or repeat the title as an opening label/heading in the description — dive straight into the compelling opening sentence.
+NO promotional superlatives (e.g. "best", "must-have", "guaranteed", "no.1", "100% perfect"), no medical or fake warranty claims, no mentions of external marketplaces (Amazon, Flipkart, etc.), no restricted-topic words.
+Respond with ONLY the description text — no quotes, no markdown headers (###), no code fences.`;
+
+  const raw = imageInfo
+    ? await callGeminiText(geminiKey, model, imageInfo.base64, imageInfo.mimeType, prompt)
+    : await callGeminiTextOnly(geminiKey, model, prompt);
+  let text = raw.trim();
+  // Strip any accidental leading "Title: ..." or "Product Name: ..." from AI output
+  text = text.replace(/^(?:title|product\s*name)\s*:\s*[^\n]*\n+/i, '').trim();
+  const hits = findRiskyWords(text);
+  hits.forEach(w=>{ text = text.replace(new RegExp(w, 'gi'), ''); });
+  return text.replace(/[ \t]{2,}/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+async function enhanceDescriptionWithAI(){
+  const btn = document.getElementById('descEnhanceBtn');
+  const genSeoBtn = document.getElementById('generateSeoDescBtn');
+  const skipStatus = document.getElementById('descSkipStatus');
+  if(skipStatus) skipStatus.innerHTML = '';
+  if(!IS_SERVED){ showToast(describeAIError()); return; }
+  const geminiKey = (profile.geminiKey||'').trim();
+  if(!geminiKey && !serverHasApiKey){ showToast('Add a Gemini API key in ⚙️ Settings or set GEMINI_API_KEY env variable.'); return; }
+  if(btn){ btn.disabled = true; btn.textContent = '✨ Writing…'; }
+  if(genSeoBtn){ genSeoBtn.disabled = true; genSeoBtn.textContent = '✨ Writing Keyword-Rich Description…'; }
+  try{
+    const model = (profile.geminiTextModel || DEFAULT_GEMINI_TEXT_MODEL).trim();
+    let imageInfo = null;
+    try{ imageInfo = await getMainImageBase64(); }catch(e){ imageInfo = null; }
+
+    // If keywords list is empty, attempt extraction first if photo or title exists
+    if(!productKeywords.length && (imageInfo || form.title)){
+      try{
+        const kwRes = await extractKeywordsAndHintsFromImage(imageInfo);
+        if(kwRes && Array.isArray(kwRes.keywords) && kwRes.keywords.length){
+          productKeywords = kwRes.keywords;
+          if(Array.isArray(kwRes.suggested_hints)) aiSuggestedHints = kwRes.suggested_hints;
+          renderKeywordSeoCard();
+        }
+      }catch(e){}
+    }
+
+    form.description = await generateDescriptionFromKnownFields(geminiKey, model, null, imageInfo);
+    lastAIDescription = form.description;
+    renderForm();
+    showToast('✨ Description generated with search keywords & hints!');
+  }catch(err){
+    showToast(describeAIError(err));
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = '✨ Generate with AI'; }
+    if(genSeoBtn){ genSeoBtn.disabled = false; genSeoBtn.textContent = '✨ Generate Keyword-Rich Description'; }
+  }
+}
+
+// Lets a seller say/type "...generate description with AI" instead of dictating the
+// description themselves — the phrase is stripped before extraction and treated as a command.
+const AI_DESCRIPTION_TRIGGERS = ['generate description with ai','generate the description with ai','take description from ai','take the description from ai','write description with ai','description from ai','description with ai','enhance description with ai','enhance with ai','ai description'];
+function extractAIDescriptionTrigger(text){
+  const t = text.toLowerCase();
+  const hit = AI_DESCRIPTION_TRIGGERS.find(p=>t.includes(p));
+  if(!hit) return {text, wantsAI:false};
+  return {text: text.replace(new RegExp(hit, 'ig'), '').trim(), wantsAI:true};
+}
+
+// Two-step flow: "Enhance" runs the AI and shows what it would change WITHOUT touching the
+// form, then "Approve & Autofill" commits it. Uses the chosen photo AND the typed/dictated
+// text together when both are available (each fills gaps the other can't).
+let pendingQuickFill = null; // {parsed, wantsAI, proposedDescription, proposedSku}
+
+// Fields the AI is asked to extract generically — every field in the active category's schema
+// EXCEPT plumbing (images, SKU/Style ID which are auto-suggested, Group ID which is a grouping
+// choice not a product attribute, Brand which is locked) and legal/manufacturer fields (those
+// come from the seller's Settings profile, not per-product content). Built fresh off whatever
+// category is active, so a category with fields Keychains never had (Included Components,
+// Recommended Age, a certification number, ...) gets asked about too — not just a fixed list.
+const AI_NON_EXTRACTABLE_KEYS = new Set([
+  'title','description','main_image','other_image_1','other_image_2','other_image_3',
+  'sku','style_id','group_id','brand',
+  'country_of_origin','manufacturer','manufacturer_address','manufacturer_pincode',
+  'packer','packer_address','packer_pincode','importer','importer_address','importer_pincode',
+]);
+function aiExtractableFields(){
+  return FIELDS.filter(f=>!AI_NON_EXTRACTABLE_KEYS.has(f.key) && f.key!=='color');
+}
+// Some categories present a dimension/weight-style field as a dropdown of hundreds of specific
+// numeric values (e.g. 0.5, 1, 1.5, ... 100) rather than free numeric input. Enumerating all of
+// them in an AI prompt or as wizard chips is impractical — these are detected and treated as
+// "pick a number in this range" instead, then snapped to the nearest valid option afterward.
+const LARGE_OPTION_LIST_THRESHOLD = 30;
+function isNumericOptionList(options){
+  return !!options && options.length>0 && options.every(o=>o!=='' && !isNaN(parseFloat(o)) && isFinite(o));
+}
+function isLargeNumericSelect(f){
+  return f.type==='select' && f.options && f.options.length>LARGE_OPTION_LIST_THRESHOLD && isNumericOptionList(f.options);
+}
+function closestNumericOption(value, options){
+  const num = parseFloat(value);
+  if(isNaN(num)) return closestOption(value, options);
+  let best = null, bestDiff = Infinity;
+  options.forEach(o=>{
+    const on = parseFloat(o);
+    if(isNaN(on)) return;
+    const diff = Math.abs(on-num);
+    if(diff<bestDiff){ bestDiff = diff; best = o; }
+  });
+  return best;
+}
+function promptFieldSpec(f){
+  if(isLargeNumericSelect(f)){
+    const nums = f.options.map(o=>parseFloat(o)).filter(n=>!isNaN(n));
+    return `"${f.key}" (${f.label} — a number, roughly between ${Math.min(...nums)} and ${Math.max(...nums)})`;
+  }
+  if(f.type==='select') return `"${f.key}" (${f.label} — single closest to: ${f.options.join(', ')})`;
+  if(f.type==='number') return `"${f.key}" (${f.label} — a number)`;
+  return `"${f.key}" (${f.label} — short text, factual only)`;
+}
+
+// Builds the "what to mention" hint fresh for whichever category is active, as a real paragraph
+// above the textarea (not buried in a placeholder) — every field that matters gets listed, so
+// this doubles as a checklist of what Meesho wants, not just a Keychains-shaped example. A
+// dropdown field gets a small hoverable icon instead of dumping its options inline — hover (or
+// focus, for keyboard use) to see the full list in a small scrollable popover; free-text/number
+// fields just show a dash.
+function fieldHintItemHtml(f, label, required){
+  label = escapeHtml(label);
+  if(f.type==='select' && !isLargeNumericSelect(f)){
+    const opts = (f.options||[]).map(escapeHtml).join(', ');
+    return `<span class="field-hint-item"><strong>${label}</strong><span class="dropdown-icon" tabindex="0">▾<span class="dropdown-tooltip">${opts}</span></span>${required?'':' <span class="field-hint-optional">(optional)</span>'}</span>`;
+  }
+  const numHint = isLargeNumericSelect(f)
+    ? (() => { const nums = f.options.map(o=>parseFloat(o)).filter(n=>!isNaN(n)); return ` <span class="field-hint-optional">(${Math.min(...nums)}-${Math.max(...nums)})</span>`; })()
+    : '';
+  return `<span class="field-hint-item"><strong>${label}</strong> —${numHint}${required?'':' <span class="field-hint-optional">(optional)</span>'}</span>`;
+}
+function buildQuickFillHintsHtml(){
+  const items = [];
+  items.push(fieldHintItemHtml({type:'text'}, 'Product Name', true));
+  if(fieldByKey('color')){
+    items.push(fieldHintItemHtml(fieldByKey('color'), 'Color', fieldByKey('color').required) + ' <span class="field-hint-optional">(list a few for color variations)</span>');
+  }
+  aiExtractableFields().forEach(f=>{
+    items.push(fieldHintItemHtml(f, f.label, f.required));
+  });
+  return `<p class="sub" style="margin:0;">Mention as many of these as you can — hover (or tap) the ▾ on a dropdown field to see its options: ${items.join(', ')}. Then either write a Description yourself or say "generate description with AI".</p>`;
+}
+function updateQuickFillPlaceholder(){
+  const el = document.getElementById('quickFillHints');
+  if(el) el.innerHTML = buildQuickFillHintsHtml();
+}
+
+async function enhanceFreeTextWithAI(){
+  const statusEl = document.getElementById('quickFillStatus');
+  const previewEl = document.getElementById('quickFillPreview');
+  if(!statusEl) return;
+  previewEl.innerHTML = '';
+  pendingQuickFill = null;
+  if(!IS_SERVED){ statusEl.innerHTML = `<span class="tag bad">${escapeHtml(describeAIError())}</span>`; return; }
+  const geminiKey = (profile.geminiKey||'').trim();
+  if(!geminiKey && !serverHasApiKey){ statusEl.innerHTML = '<span class="tag bad">Add a Gemini API key in ⚙️ Settings or configure GEMINI_API_KEY.</span>'; return; }
+  const rawText = (document.getElementById('quickFillText').value||'').trim();
+  let imageInfo = null;
+  try{ imageInfo = await getMainImageBase64(); }catch(e){ imageInfo = null; } // photo is optional here
+  if(!rawText && !imageInfo){ statusEl.innerHTML = '<span class="tag bad">Type/dictate a description, or choose a photo above, first.</span>'; return; }
+  const {text, wantsAI} = extractAIDescriptionTrigger(rawText);
+  statusEl.innerHTML = '<span class="tag idle">Thinking…</span>';
+  try{
+    const model = (profile.geminiTextModel || DEFAULT_GEMINI_TEXT_MODEL).trim();
+    const textPart = text
+      ? `The seller also described it in their own words (may be informal or dictated by voice — infer intent even if rough): """${text}"""`
+      : 'The seller gave no written description — rely on the photo alone.';
+    const photoPart = imageInfo
+      ? 'A reference photo of the item is attached — use it together with the text below (the photo shows real visual attributes; the text may add price, quantity, or other facts the photo can\'t show).'
+      : 'No photo was provided — rely on the text alone.';
+    const colorSpec = fieldByKey('color')
+      ? `"colors" (an array of EVERY color mentioned as an available option for this one product, each closest to: ${fieldOptions('color').join(', ')} — only include this key at all if the seller describes MULTIPLE color choices for the same product; omit it entirely for a single-color product), "color" (single closest to: ${fieldOptions('color').join(', ')} — the one color, only for a single-color product), `
+      : '';
+    const extractableSpecs = aiExtractableFields().map(promptFieldSpec).join(', ');
+    const prompt = `You're helping a seller list a "${ACTIVE_CATEGORY_NAME}" product on Meesho. ${photoPart} ${textPart} Respond with ONLY a JSON object (no markdown, no code fences). ALWAYS include "title" (an enhanced, keyword-rich product name under 100 characters — if the seller already gave a rough name, improve its wording; don't leave it generic). Also include any of these keys you can determine from what was given — try hard to fill as many as genuinely supported by the photo/text (maximize coverage), but omit a key entirely rather than guess wildly when truly nothing suggests it: ${colorSpec}${extractableSpecs}.`;
+    const respText = imageInfo
+      ? await callGeminiText(geminiKey, model, imageInfo.base64, imageInfo.mimeType, prompt)
+      : await callGeminiTextOnly(geminiKey, model, prompt);
+    let parsed = null;
+    try{ parsed = JSON.parse(respText.replace(/^```json\s*|```\s*$/g,'').trim()); }catch(e){ parsed = null; }
+    if(!parsed){ statusEl.innerHTML = '<span class="tag bad">Could not understand a usable response — try rephrasing.</span>'; return; }
+    const proposedTitle = (parsed.title || form.title || '').trim();
+    // The description is always the long, keyword-rich, feature-bulleted version — written by a
+    // dedicated call (using the photo too, when there is one), not the quick single-line guess.
+    statusEl.innerHTML = '<span class="tag idle">Writing description with AI…</span>';
+    const proposedDescription = await generateDescriptionFromKnownFields(geminiKey, model, {
+      title: proposedTitle,
+      color: closestOption(parsed.color, fieldOptions('color')) || form.color,
+      material: closestOption(parsed.material, fieldOptions('material')) || form.material,
+      shape: closestOption(parsed.shape, fieldOptions('shape')) || form.shape,
+      type: closestOption(parsed.type, fieldOptions('type')) || form.type,
+    }, imageInfo);
+    // Title, Description, SKU ID and Product ID / Style ID are always proposed — the whole point
+    // of Enhance is to improve them, not just fill them in when blank. Everything else is only
+    // proposed when the AI actually pulled it from the photo/text.
+    const proposedSku = suggestSkuFromTitle(proposedTitle);
+    const proposedStyleId = suggestStyleIdFromTitle(proposedTitle);
+    // Multiple colors mentioned ("comes in red, green, blue") means this isn't a single-color
+    // product — approving switches to Product with Variations and builds one row per color.
+    const proposedColors = fieldByKey('color') && Array.isArray(parsed.colors)
+      ? [...new Set(parsed.colors.map(c=>closestOption(c, fieldOptions('color'))).filter(Boolean))]
+      : [];
+    const isMultiColor = proposedColors.length > 1;
+    // Every proposed value is copied into an editable draft — nothing is locked in until Approve,
+    // and every field here can be corrected first (e.g. a wrong price) instead of only being
+    // fixable after it's already in the form. Built generically off the category's own fields, so
+    // it covers whatever that category defines, not a fixed Keychains-shaped list.
+    const draft = {title: proposedTitle, description: proposedDescription, sku: proposedSku, style_id: proposedStyleId};
+    aiExtractableFields().forEach(f=>{
+      const raw = parsed[f.key];
+      if(raw===undefined || raw===null || raw==='') { draft[f.key] = ''; return; }
+      if(isLargeNumericSelect(f)) draft[f.key] = closestNumericOption(raw, f.options) || '';
+      else draft[f.key] = f.type==='select' ? (closestOption(raw.toString(), f.options)||'') : raw.toString();
+    });
+    if(fieldByKey('hsn')) draft.hsn = resolveHsnGuess(parsed.hsn); // HSN can only legally be one of a fixed few — always guaranteed a value
+    draft.colors = proposedColors.join(', ');
+    draft.color = (!isMultiColor && fieldByKey('color')) ? (closestOption(parsed.color, fieldOptions('color'))||'') : '';
+    pendingQuickFill = {draft, isMultiColor};
+    renderQuickFillPreview();
+    statusEl.innerHTML = '';
+  }catch(err){
+    statusEl.innerHTML = `<span class="tag bad">✗ ${escapeHtml(describeAIError(err))}</span>`;
+  }
+}
+
+function quickFillFieldRow(label, key, opts){
+  opts = opts || {};
+  const val = (pendingQuickFill.draft[key] ?? '').toString();
+  let control;
+  if(opts.options){
+    control = `<select data-qf="${key}" style="width:${opts.width||'160px'};">` + `<option value="">—</option>` +
+      opts.options.map(o=>`<option value="${escapeHtml(o)}" ${o===val?'selected':''}>${escapeHtml(o)}</option>`).join('') + `</select>`;
+  } else if(opts.textarea){
+    control = `<textarea data-qf="${key}" rows="${opts.rows||3}" style="width:100%;">${escapeHtml(val)}</textarea>`;
+  } else {
+    control = `<input data-qf="${key}" type="${opts.number?'number':'text'}" value="${escapeHtml(val)}" style="width:${opts.width||'160px'};">`;
+  }
+  return `<div style="margin:8px 0;">
+    <label style="display:block;font-size:11.5px;font-weight:600;color:var(--pink-dark);margin-bottom:2px;">${escapeHtml(label)}</label>
+    ${control}
+  </div>`;
+}
+
+function renderQuickFillPreview(){
+  const previewEl = document.getElementById('quickFillPreview');
+  if(!pendingQuickFill){ previewEl.innerHTML = ''; return; }
+  const {draft, isMultiColor} = pendingQuickFill;
+  const showPerVariant = mode==='single' || isMultiColor;
+  const rows = [];
+  rows.push(quickFillFieldRow('Title', 'title', {width:'100%'}));
+  rows.push(quickFillFieldRow('Description', 'description', {textarea:true, rows:8}));
+  rows.push(quickFillFieldRow('SKU ID (suggested)', 'sku'));
+  rows.push(quickFillFieldRow('Product ID / Style ID (suggested)', 'style_id'));
+
+  if(isMultiColor){
+    rows.push(`<p class="sub" style="margin:4px 0;">Approving will switch to "Product with Variations" and create one row per color below.</p>`);
+    rows.push(quickFillFieldRow('Colors (comma-separated)', 'colors', {width:'100%'}));
+  } else if(fieldByKey('color') && draft.color){
+    rows.push(quickFillFieldRow('Color', 'color', {options:fieldOptions('color')}));
+  }
+
+  // Every other field the category defines — rendered generically, not a fixed list, so a
+  // category with fields Keychains never had still gets a row here when AI found a value.
+  // Anything REQUIRED that AI couldn't determine (and that isn't already covered by a Settings
+  // default) gets flagged below instead of silently vanishing.
+  const reviewNeeded = [];
+  aiExtractableFields().forEach(f=>{
+    const isPerVariant = PER_VARIANT_KEYS.includes(f.key);
+    if(isPerVariant && !showPerVariant) return; // set per-row in the Variations table instead
+    const val = draft[f.key];
+    if(val){
+      const opts = f.type==='select' ? {options:f.options} : f.type==='number' ? {number:true, width:'90px'} : {width:'220px'};
+      rows.push(quickFillFieldRow(f.label + (isPerVariant && isMultiColor ? ' (all colors)' : ''), f.key, opts));
+    } else if(f.required && !(form[f.key]||'').toString().trim()){
+      reviewNeeded.push(f.label);
+    }
+  });
+  if(!isMultiColor && fieldByKey('color') && fieldByKey('color').required && !draft.color && !form.color.trim()){
+    reviewNeeded.push('Color');
+  }
+
+  const reviewBanner = reviewNeeded.length
+    ? `<div class="errbox" style="margin-bottom:8px;"><strong>⚠ Manual review required</strong> — AI couldn't determine: ${escapeHtml(reviewNeeded.join(', '))}. Fill ${reviewNeeded.length===1?'it':'these'} in yourself in Step 3 after approving.</div>`
+    : '';
+
+  previewEl.innerHTML = `
+    ${reviewBanner}
+    <div class="errbox" style="background:var(--pink-light);border-color:var(--pink);color:var(--pink-dark);">
+      <strong>AI suggests (edit anything that's wrong, then approve):</strong>
+      ${rows.join('')}
+    </div>
+    <div class="row-inline" style="gap:8px;margin-top:8px;">
+      <button type="button" class="btn btn-primary btn-sm" id="quickFillApproveBtn">✅ Approve &amp; Autofill</button>
+      <button type="button" class="btn btn-outline btn-sm" id="quickFillDiscardBtn">✕ Discard</button>
+    </div>`;
+  previewEl.querySelectorAll('[data-qf]').forEach(el=>{
+    const evt = el.tagName === 'SELECT' ? 'change' : 'input';
+    el.addEventListener(evt, ()=>{ pendingQuickFill.draft[el.dataset.qf] = el.value; });
+  });
+  const approveBtn = document.getElementById('quickFillApproveBtn');
+  if(approveBtn) approveBtn.addEventListener('click', approvePendingQuickFill);
+  const discardBtn = document.getElementById('quickFillDiscardBtn');
+  if(discardBtn) discardBtn.addEventListener('click', ()=>{ pendingQuickFill=null; previewEl.innerHTML=''; });
+}
+
+function approvePendingQuickFill(){
+  if(!pendingQuickFill) return;
+  const {draft, isMultiColor} = pendingQuickFill;
+  const applied = [];
+  const applyShared = (key, label) => {
+    const val = (draft[key]||'').toString().trim();
+    if(val){ form[key] = val; applied.push(label); }
+  };
+  applyShared('title', 'Title');
+  if((draft.description||'').trim()){ form.description = draft.description.trim(); applied.push('Description'); lastAIDescription = form.description; }
+  applyShared('sku', 'SKU ID');
+  applyShared('style_id', 'Product ID / Style ID');
+
+  // Shared (non-per-variant) fields always go straight onto the form; per-variant fields go onto
+  // the form only in Single mode — in Variations mode they instead get applied to every row below.
+  const applyToFormDirectly = mode==='single' && !isMultiColor;
+  aiExtractableFields().forEach(f=>{
+    if(PER_VARIANT_KEYS.includes(f.key)){
+      if(applyToFormDirectly) applyShared(f.key, f.label);
+    } else {
+      applyShared(f.key, f.label);
+    }
+  });
+  if(applyToFormDirectly && fieldByKey('color')) applyShared('color', 'Color');
+
+  if(isMultiColor){
+    // Multiple colors described for one product: switch to Variations and give every color its
+    // own row, with whatever shared attributes were mentioned applied to each row that doesn't
+    // already have its own value (never overwrites a row you already filled by hand).
+    const editedColors = [...new Set(draft.colors.split(',').map(c=>closestOption(c.trim(), fieldOptions('color'))).filter(Boolean))];
+    mode = 'variations';
+    if(!form.group_id){ form.group_id = fieldOptions('group_id')[0]; }
+    const isBlankPlaceholder = r => !r.color && !r.material && !r.price && !r.mrp && !r.weight && !r.main_image;
+    if(variationRows.length === 1 && isBlankPlaceholder(variationRows[0])) variationRows = [];
+    const existingColors = new Set(variationRows.map(r=>r.color).filter(Boolean));
+    editedColors.forEach(c=>{
+      if(existingColors.has(c)) return;
+      const row = newVariationRow();
+      row.color = c;
+      row.skuSuffix = c.toUpperCase().replace(/[^A-Z0-9]+/g,'_');
+      variationRows.push(row);
+    });
+    const perVariantExtractable = aiExtractableFields().filter(f=>PER_VARIANT_KEYS.includes(f.key));
+    variationRows.forEach(r=>{
+      perVariantExtractable.forEach(f=>{
+        const val = (draft[f.key]||'').toString().trim();
+        if(val && !r[f.key]) r[f.key] = val;
+      });
+    });
+    applied.push(`${editedColors.length} color variations (${editedColors.join(', ')}) with shared attributes`);
+  }
+  pendingQuickFill = null;
+  document.getElementById('quickFillPreview').innerHTML = '';
+  document.getElementById('quickFillStatus').innerHTML = `<span class="tag ok">✓ Filled: ${escapeHtml(applied.join(', '))} — please give it a final check.</span>`;
+  renderForm();
+}
+
+let voiceRecognition = null;
+let voiceRecognizing = false;
+function toggleVoiceInput(){
+  const btn = document.getElementById('voiceBtn');
+  const textarea = document.getElementById('quickFillText');
+  const statusEl = document.getElementById('quickFillStatus');
+  if(voiceRecognizing){ if(voiceRecognition) voiceRecognition.stop(); return; }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){
+    statusEl.innerHTML = "<span class=\"tag bad\">Voice input isn't supported in this browser — try Chrome or Edge, or just type into the box (your keyboard's own dictation button works too).</span>";
+    return;
+  }
+  let baseText = textarea.value ? textarea.value.trim() + ' ' : '';
+  voiceRecognition = new SR();
+  voiceRecognition.continuous = true;
+  voiceRecognition.interimResults = true;
+  voiceRecognition.lang = 'en-IN';
+  voiceRecognition.onresult = (e)=>{
+    let finalTranscript = '';
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      if(e.results[i].isFinal) finalTranscript += e.results[i][0].transcript + ' ';
+    }
+    if(finalTranscript){ baseText += finalTranscript; textarea.value = baseText.trim() + ' '; }
+  };
+  voiceRecognition.onerror = (e)=>{
+    statusEl.innerHTML = `<span class="tag bad">Voice input error: ${escapeHtml(e.error||'unknown')}</span>`;
+  };
+  voiceRecognition.onend = ()=>{
+    voiceRecognizing = false;
+    btn.textContent = '🎤 Start Voice Input';
+  };
+  voiceRecognition.start();
+  voiceRecognizing = true;
+  btn.textContent = '⏹ Stop Voice Input';
+  statusEl.innerHTML = '<span class="tag idle">Listening… speak naturally, then click Stop.</span>';
+}
+
+/* ============ Per-field AI image prompts (generate a preview here, or copy the prompt
+   elsewhere — ChatGPT, etc.). Nothing gets auto-uploaded: Meesho only reliably accepts links
+   from its own Image Uploader, so you upload the result yourself and paste the link in. ======= */
+function sizeReferencePromptText(){
+  const unit = (form.dimension_unit || 'cm').trim();
+  const parts = [];
+  if(form.length && form.length.toString().trim()) parts.push(`length ${form.length}${unit}`);
+  if(form.width && form.width.toString().trim()) parts.push(`width ${form.width}${unit}`);
+  if(form.height && form.height.toString().trim()) parts.push(`height ${form.height}${unit}`);
+  const dimStr = parts.length ? ` — the item's approximate real size is ${parts.join(', ')}` : '';
+  return `Using the attached reference photo, create a photo of the EXACT SAME item placed next to a common object (like a coin or a ruler) to indicate its real-world size${dimStr}. Same color, shape, material, and branding — do not alter the product. Plain background. No added text or watermark.`;
+}
+const IMAGE_PROMPT_PRESETS = [
+  {label:'Close-up detail shot', text:'Using the attached reference photo, create a close-up detail shot of the EXACT SAME item — same color, shape, material, and branding, do not alter the product. Plain, clean background. No added text or watermark.'},
+  {label:'Lifestyle / in-use shot', text:'Using the attached reference photo, create a lifestyle photo showing the EXACT SAME item in everyday use (e.g. held in a hand, attached to keys or a bag). Same color, shape, material, and branding — do not alter the product. No added text or watermark.'},
+  {label:'Size reference shot', get text(){ return sizeReferencePromptText(); }},
+];
+let pendingGenerated = {}; // id -> {data, mimeType} awaiting approval
+// Caches the last AI-suggested description from either Analyze Photo or Quick Fill, even if it
+// wasn't applied at the time (because the field already had text). "Enhance with AI" on the
+// Description field reuses this instead of spending a fresh Gemini call when we already have it.
+let lastAIDescription = '';
+
+function otherImageIndex(id){
+  const m = id.match(/other_image_(\d)/);
+  return m ? (parseInt(m[1],10) - 1) : 0;
+}
+
+async function generateFieldImage(id){
+  const statusEl = document.getElementById(id+'_genStatus');
+  if(!statusEl) return;
+  if(!IS_SERVED){ statusEl.innerHTML = `<span class="tag bad">${escapeHtml(describeAIError())}</span>`; return; }
+  const geminiKey = (profile.geminiKey||'').trim();
+  if(!geminiKey && !serverHasApiKey){ statusEl.innerHTML = '<span class="tag bad">Add a Gemini API key in ⚙️ Settings or configure GEMINI_API_KEY.</span>'; return; }
+  const promptEl = document.getElementById(id+'_prompt');
+  const prompt = (promptEl ? promptEl.value : '').trim();
+  if(!prompt){ statusEl.innerHTML = '<span class="tag bad">Pick a preset or type a prompt first.</span>'; return; }
+  statusEl.innerHTML = '<span class="tag idle">Generating…</span>';
+  try{
+    const {base64, mimeType} = await getMainImageBase64();
+    const model = (profile.geminiImageModel || DEFAULT_GEMINI_IMAGE_MODEL).trim();
+    const gen = await callGeminiImage(geminiKey, model, base64, mimeType, prompt);
+    pendingGenerated[id] = gen;
+    const previewUrl = `data:${gen.mimeType};base64,${gen.data}`;
+    statusEl.innerHTML = `
+      <div class="img-preview"><img src="${previewUrl}" alt=""><span class="tag idle">preview</span></div>
+      <div style="margin-top:5px;display:flex;gap:6px;flex-wrap:wrap;">
+        <button type="button" class="btn btn-primary btn-sm" data-download-gen="${id}">⬇ Download image</button>
+        <button type="button" class="btn btn-outline btn-sm" data-retry-gen="${id}">🔄 Try again</button>
+      </div>
+      <div class="help" style="margin-top:4px;">Upload this via Meesho's Image Uploader, then paste the link into the field above.</div>`;
+    const downloadBtn = statusEl.querySelector(`[data-download-gen]`);
+    if(downloadBtn) downloadBtn.addEventListener('click', ()=>downloadGeneratedImage(id));
+    const retryBtn = statusEl.querySelector(`[data-retry-gen]`);
+    if(retryBtn) retryBtn.addEventListener('click', ()=>generateFieldImage(id));
+  }catch(err){
+    statusEl.innerHTML = `<span class="tag bad">✗ ${escapeHtml(describeAIError(err))}</span>`;
+  }
+}
+
+function downloadGeneratedImage(id){
+  const gen = pendingGenerated[id];
+  if(!gen) return;
+  const blob = base64ToBlob(gen.data, gen.mimeType);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const ext = (gen.mimeType||'').includes('png') ? 'png' : 'jpg';
+  a.href = url;
+  a.download = `${id.replace(/^f_/,'')}.${ext}`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+}
+
+function copyImagePrompt(id){
+  const promptEl = document.getElementById(id+'_prompt');
+  if(!promptEl) return;
+  navigator.clipboard.writeText(promptEl.value).then(()=>{
+    showToast('Prompt copied — paste into ChatGPT or any image generator');
+  }).catch(()=>{
+    showToast('Could not copy — select the text manually');
+  });
+}
+
+/* ============ Render: form ============ */
+// Image columns are identified by key, not by a schema "type" — the generic template parser
+// has no way to know a text column is meant for an image link, only the field's own key does
+// (main_image / other_image_1-3, set up by the label-alias map in server.js).
+function isImageField(fd){ return fd.key==='main_image' || fd.key.startsWith('other_image_'); }
+
+function fieldHtml(fd){
+  const val = (form[fd.key] ?? '').toString().replace(/"/g,'&quot;');
+  let control = '';
+  if(isImageField(fd)){
+    control = imageUrlInputHtml('f_'+fd.key, form[fd.key]);
+  } else if(fd.type === 'select'){
+    control = `<select id="f_${fd.key}">` + `<option value="">— Select —</option>` +
+      fd.options.map(o=>`<option value="${o}" ${o===form[fd.key]?'selected':''}>${o}</option>`).join('') + `</select>`;
+  } else if(fd.type === 'textarea'){
+    control = `<textarea id="f_${fd.key}">${(form[fd.key]||'').replace(/</g,'&lt;')}</textarea>`;
+  } else {
+    const listAttr = fd.list ? `list="dl_${fd.key}"` : '';
+    const inputType = fd.type === 'number' ? 'number' : 'text';
+    const disabledAttr = fd.disabled ? 'disabled' : '';
+    control = `<input id="f_${fd.key}" type="${inputType}" value="${val}" ${listAttr} ${disabledAttr} autocomplete="off">`;
+    if(fd.list){
+      control += `<datalist id="dl_${fd.key}">` + fd.list.map(o=>`<option value="${o}">`).join('') + `</datalist>`;
+    }
+  }
+  let extra = '';
+  if(fd.counter){
+    const len = (form[fd.key]||'').length;
+    extra += `<div class="counter" id="cnt_${fd.key}">${len} / ${fd.counter} chars</div>`;
+  }
+  if(fd.key === 'title' || fd.key === 'description'){
+    extra += `<div id="risk_${fd.key}"></div>`;
+  }
+  if(fd.key === 'description'){
+    extra += `<div class="keyword-seo-card" id="keywordSeoBox" style="margin-top:10px;">
+      <div class="keyword-seo-header">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-size:16px;">🔍</span>
+          <div>
+            <strong style="color:var(--pink-dark);font-size:13.5px;">Search Keywords &amp; Seller Hints</strong>
+            <div style="font-size:11.5px;color:var(--muted);">High-traffic Meesho buyer search terms &amp; seller highlights incorporated directly into your listing.</div>
+          </div>
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" id="refreshKeywordsBtn" style="white-space:nowrap;font-size:12px;">
+          ${productKeywords.length ? '🔄 Refresh Keywords' : '🔍 Suggest Keywords from Photo'}
+        </button>
+      </div>
+
+      <div style="margin-bottom:8px;">
+        <a href="https://meeshohaul.in/meesho-keywords-research-tool/" target="_blank" rel="noopener noreferrer" style="font-size:11.5px;color:var(--pink-dark);font-weight:600;text-decoration:none;">🔗 Research high-volume Meesho keywords yourself ↗</a>
+      </div>
+
+      <div id="keywordStatus" style="font-size:12px;margin-bottom:8px;"></div>
+
+      <!-- Target Search Keywords Section -->
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+          <label style="font-size:11.5px;font-weight:700;color:var(--text);margin:0;">
+            🎯 Majorly Searched Keywords (<span id="keywordCount">${productKeywords.length}</span>)
+          </label>
+          <span style="font-size:11px;color:var(--muted);">Green = Present in description</span>
+        </div>
+        <div class="keyword-chips-container" id="keywordChipsList">
+          ${renderKeywordChipsHtml()}
+        </div>
+      </div>
+
+      <!-- Seller Hints Section -->
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+          <label style="font-size:11.5px;font-weight:700;color:var(--text);margin:0;">
+            💡 Seller Hints &amp; Highlights (<span id="hintsCount">${sellerHints.length}</span>)
+          </label>
+          <span style="font-size:11px;color:var(--muted);">Custom USPs to emphasize</span>
+        </div>
+        <div class="keyword-chips-container" id="hintsChipsList">
+          ${renderHintChipsHtml()}
+        </div>
+        ${aiSuggestedHints.length ? `
+          <div style="margin-top:5px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+            <span style="font-size:11px;color:var(--muted);font-weight:600;">Quick Add Hint:</span>
+            ${aiSuggestedHints.map((h, i)=>`<button type="button" class="btn btn-outline btn-sm" style="font-size:11px;padding:2px 8px;height:auto;" data-quick-hint="${escapeHtml(h)}">+ ${escapeHtml(h)}</button>`).join('')}
+          </div>
+        ` : ''}
+      </div>
+
+      <!-- Add Custom Hint or Keyword Row -->
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:10px;">
+        <div style="font-size:11px;font-weight:600;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:0.5px;">Add Custom Hint or Search Keyword</div>
+        <div class="row-inline" style="gap:6px;flex-wrap:wrap;">
+          <input type="text" id="customHintInput" placeholder="Type a hint (e.g. waterproof, gift box) or keyword (e.g. bike key ring)..." style="flex:1;min-width:200px;font-size:12.5px;padding:6px 10px;">
+          <button type="button" class="btn btn-outline btn-sm" id="addCustomHintBtn" style="white-space:nowrap;font-size:12px;">💡 + Add Hint</button>
+          <button type="button" class="btn btn-outline btn-sm" id="addCustomKeywordBtn" style="white-space:nowrap;font-size:12px;">🔍 + Add Keyword</button>
+        </div>
+      </div>
+
+      <!-- Actions Row -->
+      <div class="row-inline" style="gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center;">
+        <button type="button" class="btn btn-primary btn-sm wizard-ai-btn" id="generateSeoDescBtn" title="Writes a full description using the product's own details, any Q&amp;A answers, and keywords AI finds for it (AI)">📝 Description with AI</button>
+        <button type="button" class="btn btn-outline btn-sm" id="descSkipBtn" title="Description is optional in Meesho — click to skip or leave blank">⏩ Skip Description</button>
+        <span id="descSkipStatus" style="font-size:12px;color:var(--muted);"></span>
+      </div>
+
+      <!-- Coverage & Search Discoverability Meter -->
+      <div class="keyword-coverage-container">
+        <div class="keyword-coverage-header">
+          <span style="font-size:11.5px;font-weight:700;color:var(--text);">Search Discoverability &amp; Keyword Coverage:</span>
+          <span id="keywordCoverageStats" style="font-size:11.5px;font-weight:700;color:var(--pink-dark);">0 / 0 covered</span>
+        </div>
+        <div class="keyword-coverage-bar">
+          <div class="keyword-coverage-fill" id="keywordCoverageBarFill" style="width:0%;"></div>
+        </div>
+        <div id="keywordCoverageBadges" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;"></div>
+      </div>
+    </div>`;
+  }
+  if(fd.key === 'sku'){
+    extra += `<button type="button" class="btn btn-outline btn-sm" id="skuSuggestBtn" style="margin-top:6px;">💡 Suggest from Product Name</button>`;
+  }
+  if(fd.key === 'style_id'){
+    extra += `<button type="button" class="btn btn-outline btn-sm" id="styleIdSuggestBtn" style="margin-top:6px;">🎲 Suggest Random Style ID</button>`;
+  }
+  if(fd.key.startsWith('other_image_')){
+    const id = 'f_'+fd.key;
+    const presetIdx = otherImageIndex(fd.key) % IMAGE_PROMPT_PRESETS.length;
+    const preset = IMAGE_PROMPT_PRESETS[presetIdx];
+    extra += `<div style="margin-top:6px;padding-top:6px;border-top:1px dashed var(--border);">
+      <select id="${id}_presetSelect" style="font-size:11.5px;padding:4px 6px;width:auto;">
+        ${IMAGE_PROMPT_PRESETS.map((p,i)=>`<option value="${i}" ${i===presetIdx?'selected':''}>${escapeHtml(p.label)}</option>`).join('')}
+        <option value="custom">Custom prompt…</option>
+      </select>
+      <textarea id="${id}_prompt" style="min-height:44px;font-size:11.5px;margin-top:4px;">${escapeHtml(preset.text)}</textarea>
+      <div class="row-inline" style="gap:6px;margin-top:4px;">
+        <button type="button" class="btn btn-outline btn-sm" id="${id}_genBtn">✨ Generate preview</button>
+        <button type="button" class="btn btn-outline btn-sm" id="${id}_copyBtn">📋 Copy Prompt</button>
+      </div>
+      <div id="${id}_genStatus" style="margin-top:4px;"></div>
+    </div>`;
+  }
+  const labelSuffix = fd.required
+    ? ' <span class="req">*</span>'
+    : ' <span style="font-weight:400;color:var(--muted);font-size:11.5px;">(Optional)</span>';
+  const isDefaultImageInVariations = mode==='variations' && fd.key.startsWith('other_image_');
+  const label = isDefaultImageInVariations ? `Default ${fd.label}` : fd.label;
+  const help = isDefaultImageInVariations
+    ? `Used for any color variation that doesn't set its own ${fd.label} in the Variations table below.`
+    : fd.help;
+  const isFlagged = formFlaggedKeys.has(fd.key);
+  const flagToggleBtn = `<button type="button" class="field-flag-btn ${isFlagged?'flagged':''}" data-toggle-flag="${fd.key}" title="${isFlagged?'Unflag this field':'Flag for review / AI resolution'}">${isFlagged?'🚩 Flagged':'⚐ Flag'}</button>`;
+  return `<div class="field${isImageField(fd)?' img-field':''}${isFlagged?' field-flagged':''}" id="wrap_${fd.key}">
+    <label>
+      <span class="label-title">${label}${labelSuffix}</span>
+      <span style="display:inline-flex;align-items:center;gap:4px;">
+        ${flagToggleBtn}
+        ${infoTipHtml(help)}
+      </span>
+    </label>
+    ${control}
+    ${extra}
+  </div>`;
+}
+
+function renderMainImageStep(){
+  const wrap = document.getElementById('mainImageStep');
+  const label = mode==='variations' ? 'Default Image 1 (Front)' : 'Image 1 (Front)';
+  const note = mode==='variations'
+    ? "Meesho only requires 1 front photo per color — set it here as a fallback, or leave this blank and give each color its own Image 1 in the Variations table below."
+    : 'Upload your photo via Meesho\'s Image Uploader and paste the link here. "Choose photo for AI" is separate — that copy is only analyzed by AI, never uploaded.';
+  const requiredBadge = mode==='variations'
+    ? ' <span style="font-weight:400;color:var(--muted);font-size:11.5px;">(required only if a row doesn\'t set its own)</span>'
+    : ' <span class="req">*</span>';
+  wrap.innerHTML = `
+    <div class="field img-field" id="wrap_main_image">
+      <label>
+        <span class="label-title">${label}${requiredBadge}</span>
+        ${infoTipHtml(note)}
+      </label>
+      ${mainImageControlHtml('f_main_image', form.main_image)}
+    </div>`;
+  wireMainImageControl('f_main_image', (val)=>{
+    form.main_image = val;
+    document.getElementById('wrap_main_image').classList.remove('invalid');
+  });
+}
+
+async function resolveFormFlagsWithAI(){
+  if(!IS_SERVED){ showToast(describeAIError()); return; }
+  const geminiKey = (profile.geminiKey||'').trim();
+  if(!geminiKey && !serverHasApiKey){ showToast('Add a Gemini API key in ⚙️ Settings or configure GEMINI_API_KEY.'); return; }
+  if(!formFlaggedKeys.size){ showToast('No fields are currently flagged.'); return; }
+  const btn = document.getElementById('resolveFormFlagsBtn');
+  if(btn){ btn.disabled = true; btn.textContent = '✨ Resolving…'; }
+  try{
+    const model = (profile.geminiTextModel || DEFAULT_GEMINI_TEXT_MODEL).trim();
+    let imageInfo = null;
+    try{ imageInfo = await getMainImageBase64(); }catch(e){}
+    const flaggedList = Array.from(formFlaggedKeys).map(k=>{
+      const fd = fieldByKey(k);
+      return {
+        key: k,
+        label: fd?.label || k,
+        currentValue: form[k] || '',
+        options: fd?.options || null
+      };
+    });
+    const errorContext = activeErrorFixContext
+      ? `\nThese fields were flagged because Meesho's upload actually rejected this exact listing with this message — your fix MUST directly resolve this stated reason, not just produce a generically valid value:\n"${activeErrorFixContext}"\n`
+      : '';
+    const prompt = `You are an expert Meesho catalog specialist for category "${ACTIVE_CATEGORY_NAME}".
+The seller has flagged the following fields for AI review / resolution:
+${JSON.stringify(flaggedList, null, 2)}
+${errorContext}Other known attributes of this listing:
+${JSON.stringify(form, null, 2)}
+Please evaluate each flagged field, resolve it with the best valid Meesho-compliant value, and provide a brief rationale. Also validate if the product title or description should be enhanced to match. Change as little as possible beyond what's needed to fix the stated problem.
+Return ONLY valid JSON (no markdown):
+{
+  "resolved_flags": [
+    { "key": "field_key", "value": "resolved_value", "reason": "why this value was chosen" }
+  ],
+  "enhanced_title": "optional improved title under 100 chars, or keep current",
+  "summary_message": "brief explanation of fixes made"
+}`;
+    const respText = imageInfo
+      ? await callGeminiText(geminiKey, model, imageInfo.base64, imageInfo.mimeType, prompt)
+      : await callGeminiTextOnly(geminiKey, model, prompt);
+    let parsed = null;
+    try{ parsed = JSON.parse(respText.replace(/^```json\s*|```\s*$/g,'').trim()); }catch(e){}
+    if(!parsed || !Array.isArray(parsed.resolved_flags)){
+      showToast('Could not resolve flagged fields — please try again.');
+      return;
+    }
+    const applied = [];
+    parsed.resolved_flags.forEach(rf=>{
+      const fd = fieldByKey(rf.key);
+      let val = rf.value;
+      if(fd && fd.options && fd.options.length){
+        val = closestOption(val, fd.options) || val;
+      }
+      form[rf.key] = val;
+      formFlaggedKeys.delete(rf.key);
+      applied.push(`${fd?.label || rf.key}: ${val}`);
+    });
+    if(parsed.enhanced_title && parsed.enhanced_title !== form.title && formFlaggedKeys.has('title')){
+      form.title = parsed.enhanced_title;
+    }
+    renderForm();
+    const errBoxEl = document.getElementById('formErrors');
+    if(errBoxEl && errBoxEl.querySelector('.warnbox')){
+      const warnEl = errBoxEl.querySelector('.warnbox');
+      warnEl.outerHTML = formFlaggedKeys.size
+        ? `<div class="warnbox">🚩 <strong>Still needs your review:</strong> ${escapeHtml(Array.from(formFlaggedKeys).map(k=>fieldByKey(k)?.label||k).join(', '))} — AI couldn't resolve ${formFlaggedKeys.size===1?'this one':'these'}.</div>`
+        : `<div class="tipbox">✅ <strong>AI resolved everything</strong> — review the updated field(s) and save.</div>`;
+    }
+    showToast(`✨ Resolved: ${applied.join(', ')}`);
+  }catch(err){
+    showToast(describeAIError(err));
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = '✨ Summarize & Resolve with AI'; }
+  }
+}
+
+function renderForm(){
+  document.getElementById('modeSingleBtn').classList.toggle('active', mode==='single');
+  document.getElementById('modeVariationBtn').classList.toggle('active', mode==='variations');
+  document.getElementById('modeToggle').style.display = editingIndex===null ? 'flex' : 'none';
+  document.getElementById('variationSection').style.display = mode==='variations' ? 'block' : 'none';
+
+  renderMainImageStep();
+
+  const container = document.getElementById('formGroups');
+  let flagBanner = '';
+  if(formFlaggedKeys.size > 0){
+    const flaggedLabels = Array.from(formFlaggedKeys).map(k=>fieldByKey(k)?.label||k);
+    flagBanner = `<div class="tipbox" style="background:#FFFBEB;border-color:#FCD34D;color:#92400E;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+      <div>
+        <strong>🚩 ${formFlaggedKeys.size} field${formFlaggedKeys.size===1?'':'s'} flagged for AI review:</strong>
+        <span style="font-size:12.5px;"> ${escapeHtml(flaggedLabels.join(', '))}</span>
+      </div>
+      <button type="button" class="btn btn-primary btn-sm" id="resolveFormFlagsBtn">✨ Summarize &amp; Resolve with AI</button>
+    </div>`;
+  }
+  container.innerHTML = flagBanner + GROUPS.map(g => {
+    let fields = FIELDS.filter(f=>f.group===g.key && f.key!=='main_image');
+    if(mode==='variations') fields = fields.filter(f=>!PER_VARIANT_KEYS.includes(f.key));
+    if(!fields.length) return '';
+    const isCollapsed = collapsedGroups.has(g.key);
+    const gridClass = g.key === 'legal' ? 'grid grid-3' : 'grid';
+    return `<div class="accordion-section" id="groupsec_${g.key}">
+      <button type="button" class="accordion-header" data-group="${g.key}">
+        <span>${g.title}</span><span class="accordion-chevron">${isCollapsed?'▸':'▾'}</span>
+      </button>
+      <div class="${gridClass}" id="groupbody_${g.key}" style="${isCollapsed?'display:none;':''}">${fields.map(fieldHtml).join('')}</div>
+    </div>`;
+  }).join('');
+
+  const resolveFlagsBtn = document.getElementById('resolveFormFlagsBtn');
+  if(resolveFlagsBtn){
+    resolveFlagsBtn.addEventListener('click', resolveFormFlagsWithAI);
+  }
+
+  document.querySelectorAll('.accordion-header').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const key = btn.dataset.group;
+      const body = document.getElementById('groupbody_'+key);
+      const chevron = btn.querySelector('.accordion-chevron');
+      if(collapsedGroups.has(key)){
+        collapsedGroups.delete(key);
+        if(body) body.style.display = '';
+        if(chevron) chevron.textContent = '▾';
+      } else {
+        collapsedGroups.add(key);
+        if(body) body.style.display = 'none';
+        if(chevron) chevron.textContent = '▸';
+      }
+    });
+  });
+
+  FIELDS.forEach(fd=>{
+    if(fd.key === 'main_image') return; // handled by renderMainImageStep()
+    if(isImageField(fd)){
+      if(document.getElementById('f_'+fd.key)){
+        wireImageUrlInput('f_'+fd.key, (val)=>{
+          form[fd.key] = val;
+          document.getElementById('wrap_'+fd.key).classList.remove('invalid');
+        });
+      }
+      return;
+    }
+    const el = document.getElementById('f_'+fd.key);
+    if(!el) return;
+    el.addEventListener('input', ()=>{
+      form[fd.key] = el.value;
+      document.getElementById('wrap_'+fd.key).classList.remove('invalid');
+      if(fd.counter){
+        document.getElementById('cnt_'+fd.key).textContent = `${el.value.length} / ${fd.counter} chars`;
+      }
+      if(fd.key === 'title' || fd.key === 'description'){
+        updateRiskWordDisplay(fd.key);
+      }
+      if(fd.key === 'description'){
+        updateKeywordCoverageDisplay();
+      }
+    });
+    if(fd.key === 'title' || fd.key === 'description') updateRiskWordDisplay(fd.key);
+  });
+
+  const descEnhanceBtn = document.getElementById('descEnhanceBtn');
+  if(descEnhanceBtn) descEnhanceBtn.addEventListener('click', enhanceDescriptionWithAI);
+  const genSeoBtn = document.getElementById('generateSeoDescBtn');
+  if(genSeoBtn) genSeoBtn.addEventListener('click', enhanceDescriptionWithAI);
+
+  const refreshKwBtn = document.getElementById('refreshKeywordsBtn');
+  if(refreshKwBtn) refreshKwBtn.addEventListener('click', ()=>triggerKeywordExtractionFromImage(true));
+
+  const addHintBtn = document.getElementById('addCustomHintBtn');
+  const addKwBtn = document.getElementById('addCustomKeywordBtn');
+  const customHintInput = document.getElementById('customHintInput');
+
+  function handleAddHint(){
+    if(!customHintInput) return;
+    const v = customHintInput.value.trim();
+    if(!v) return;
+    if(!sellerHints.some(h=>h.toLowerCase()===v.toLowerCase())){
+      sellerHints.push(v);
+      customHintInput.value = '';
+      renderKeywordSeoCard();
+      showToast(`💡 Hint added: "${v}"`);
+    } else {
+      showToast('Hint already exists in list');
+    }
+  }
+
+  function handleAddKeyword(){
+    if(!customHintInput) return;
+    const v = customHintInput.value.trim();
+    if(!v) return;
+    if(!productKeywords.some(k=>k.toLowerCase()===v.toLowerCase())){
+      productKeywords.push(v);
+      customHintInput.value = '';
+      renderKeywordSeoCard();
+      showToast(`🔍 Keyword added: "${v}"`);
+    } else {
+      showToast('Keyword already exists in list');
+    }
+  }
+
+  if(addHintBtn) addHintBtn.addEventListener('click', handleAddHint);
+  if(addKwBtn) addKwBtn.addEventListener('click', handleAddKeyword);
+  if(customHintInput){
+    customHintInput.addEventListener('keydown', (e)=>{
+      if(e.key === 'Enter'){
+        e.preventDefault();
+        handleAddHint();
+      }
+    });
+  }
+
+  document.querySelectorAll('[data-quick-hint]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const h = btn.dataset.quickHint;
+      if(h && !sellerHints.some(sh=>sh.toLowerCase()===h.toLowerCase())){
+        sellerHints.push(h);
+        renderKeywordSeoCard();
+        showToast(`💡 Hint added: "${h}"`);
+      }
+    });
+  });
+
+  renderKeywordSeoCard();
+  updateKeywordCoverageDisplay();
+
+  const descSkipBtn = document.getElementById('descSkipBtn');
+  if(descSkipBtn){
+    descSkipBtn.addEventListener('click', ()=>{
+      form.description = '';
+      const ta = document.getElementById('f_description');
+      if(ta) ta.value = '';
+      const cnt = document.getElementById('cnt_description');
+      if(cnt) cnt.textContent = '0 / 1500 chars';
+      const statusEl = document.getElementById('descSkipStatus');
+      if(statusEl) statusEl.innerHTML = '<span class="tag ok" style="font-size:11px;">✓ Skipped (Optional in Meesho)</span>';
+      updateKeywordCoverageDisplay();
+      showToast('Description skipped — optional in Meesho');
+    });
+  }
+
+  const skuSuggestBtn = document.getElementById('skuSuggestBtn');
+  if(skuSuggestBtn) skuSuggestBtn.addEventListener('click', ()=>{
+    if(!form.title.trim()){ showToast('Add a Product Name first'); return; }
+    form.sku = suggestSkuFromTitle(form.title);
+    renderForm();
+  });
+
+  const styleIdSuggestBtn = document.getElementById('styleIdSuggestBtn');
+  if(styleIdSuggestBtn) styleIdSuggestBtn.addEventListener('click', ()=>{
+    if(!form.title.trim()){ showToast('Add a Product Name first'); return; }
+    form.style_id = suggestStyleIdFromTitle(form.title, form.color);
+    renderForm();
+  });
+
+  const skuLabel = document.querySelector('#wrap_sku label');
+  if(skuLabel){
+    const skuHelp = mode==='variations'
+      ? 'Prefix used to generate unique SKU for each variation (e.g. SKU_RED, SKU_BLUE).'
+      : 'Meesho allows this to be blank (auto-generated), but we require it here to track rows in your catalog list.';
+    const titleText = mode==='variations' ? 'Base SKU / Style Prefix <span class="req">*</span>' : 'SKU ID <span class="req">*</span>';
+    skuLabel.innerHTML = `<span class="label-title">${titleText}</span>${infoTipHtml(skuHelp)}`;
+  }
+
+  ['other_image_1','other_image_2','other_image_3'].forEach(key=>{
+    const id = 'f_'+key;
+    const genBtn = document.getElementById(id+'_genBtn');
+    const copyBtn = document.getElementById(id+'_copyBtn');
+    const presetSelect = document.getElementById(id+'_presetSelect');
+    const promptEl = document.getElementById(id+'_prompt');
+    if(!genBtn) return; // not rendered (e.g. filtered out)
+    genBtn.addEventListener('click', ()=>generateFieldImage(id));
+    if(copyBtn) copyBtn.addEventListener('click', ()=>copyImagePrompt(id));
+    presetSelect.addEventListener('change', ()=>{
+      if(presetSelect.value !== 'custom'){
+        promptEl.value = IMAGE_PROMPT_PRESETS[parseInt(presetSelect.value,10)].text;
+      }
+    });
+    promptEl.addEventListener('input', ()=>{
+      if(presetSelect.value !== 'custom') presetSelect.value = 'custom';
+    });
+  });
+
+  if(mode==='variations') renderVariationTable();
+
+  document.getElementById('formTitle').textContent = editingIndex!==null
+    ? `Editing: ${form.title || form.sku || ''}`
+    : (mode==='variations' ? 'New Product (with Variations)' : 'New Product');
+  document.getElementById('cancelEditBtn').style.display = editingIndex===null ? 'none' : 'inline-block';
+  updateSaveButtonLabel();
+}
+
+function updateSaveButtonLabel(){
+  const btn = document.getElementById('saveProductBtn');
+  if(editingIndex!==null){ btn.textContent = 'Save Changes'; return; }
+  if(mode==='variations'){ btn.textContent = `Add ${variationRows.length} Variation${variationRows.length===1?'':'s'} to Catalog List`; }
+  else { btn.textContent = 'Add to Catalog List'; }
+}
+
+/* ============ Render: variation table ============ */
+function selectHtml(name, i, value, options){
+  return `<select data-vf="${name}" data-i="${i}" style="width:100%;min-width:115px;">` +
+    `<option value="">—</option>` +
+    options.map(o=>`<option value="${o}" ${o===value?'selected':''}>${o}</option>`).join('') +
+    `</select>`;
+}
+
+function renderVariationTable(){
+  const wrap = document.getElementById('variationTableWrap');
+  if(!variationRows.length){
+    wrap.innerHTML = '<div class="empty" style="padding:14px 4px;">No variations yet — click "+ Add Variation" to add your first color option.</div>';
+    updateSaveButtonLabel();
+    return;
+  }
+  wrap.innerHTML = `<div class="vtable-wrap"><table class="vtable"><thead><tr>
+      <th class="col-color-fixed">Color* 🔒</th>${SIZE_VARIES?'<th>Size*</th>':''}<th>Material*</th><th>Style ID</th><th>SKU suffix*</th><th>Price*</th><th>Return Price</th><th>MRP*</th><th>Weight(g)*</th><th>Inventory*</th><th>Image 1 (Front)*</th><th>Image 2</th><th>Image 3</th><th>Image 4</th><th></th>
+    </tr></thead><tbody>` + variationRows.map((r,i)=>`<tr>
+      <td class="col-color-fixed">${selectHtml('color', i, r.color, fieldOptions('color'))}</td>
+      ${SIZE_VARIES?`<td>${selectHtml('size', i, r.size, fieldOptions('size'))}</td>`:''}
+      <td>${selectHtml('material', i, r.material, fieldOptions('material'))}</td>
+      <td>
+        <div style="display:flex;flex-direction:column;gap:2px;">
+          <input data-vf="style_id" data-i="${i}" value="${escapeHtml(r.style_id)}" style="width:90px;">
+          <button type="button" class="icon-btn" data-styleid-gen="${i}" title="Generate a random Style ID from the Product Name + this variation's color/material" style="padding:2px 4px;font-size:10.5px;">🎲 Random</button>
+        </div>
+      </td>
+      <td><input data-vf="skuSuffix" data-i="${i}" value="${escapeHtml(r.skuSuffix)}" style="width:90px;"></td>
+      <td><input type="number" data-vf="price" data-i="${i}" value="${escapeHtml(r.price)}" style="width:70px;"></td>
+      <td><input type="number" data-vf="return_price" data-i="${i}" value="${escapeHtml(r.return_price)}" style="width:70px;"></td>
+      <td><input type="number" data-vf="mrp" data-i="${i}" value="${escapeHtml(r.mrp)}" style="width:70px;"></td>
+      <td><input type="number" data-vf="weight" data-i="${i}" value="${escapeHtml(r.weight)}" style="width:65px;"></td>
+      <td><input type="number" data-vf="inventory" data-i="${i}" value="${escapeHtml(r.inventory)}" style="width:65px;"></td>
+      <td>${variationImageControlHtml('var_'+i+'_main_image', r.main_image)}</td>
+      <td>${imageUrlInputHtml('var_'+i+'_other_image_1', r.other_image_1, true)}</td>
+      <td>${imageUrlInputHtml('var_'+i+'_other_image_2', r.other_image_2, true)}</td>
+      <td>${imageUrlInputHtml('var_'+i+'_other_image_3', r.other_image_3, true)}</td>
+      <td><button class="icon-btn" data-vdel="${i}" title="Remove" type="button">🗑️</button></td>
+    </tr>`).join('') + `</tbody></table></div>
+    <div class="sub" style="margin-top:6px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <span>🔒 <strong>Variation Color column is fixed</strong> — scroll horizontally to fill out sizes, style ID, prices, inventory, and photos.</span>
+      <button type="button" class="btn btn-outline btn-sm" id="autoStyleIdBtn" style="white-space:nowrap;">🎲 Auto-fill empty Style IDs</button>
+      <span style="color:var(--pink);font-weight:600;font-size:12px;">↔️ Scroll horizontally for all fields</span>
+    </div>
+    <p class="sub" style="margin-top:4px;">Meesho requires at least Image 1 (Front) on every SKU — leave any of the 4 columns blank on a row and it falls back to the matching "Default Image" field above (Step 3 → Images). 📷 on Image 1 lets you pick that color's own photo for AI to suggest Color/Material from — it's never uploaded, same as the Main Image field elsewhere.</p>`;
+
+  wrap.querySelectorAll('[data-vf]').forEach(inp=>{
+    const evt = inp.tagName === 'SELECT' ? 'change' : 'input';
+    inp.addEventListener(evt, ()=>{
+      const i = parseInt(inp.dataset.i,10), field = inp.dataset.vf;
+      variationRows[i][field] = inp.value;
+      // Picking a color (and size, when it varies) for a row with no SKU suffix yet — suggest
+      // one from those so "SKU suffix is required" doesn't surprise anyone, and so two rows that
+      // only differ by size don't collide on the same suggested suffix.
+      if((field==='color' || field==='size') && !variationRows[i].skuSuffix.trim()){
+        const parts = [variationRows[i].color, variationRows[i].size].filter(Boolean);
+        if(parts.length){
+          variationRows[i].skuSuffix = parts.join('_').toUpperCase().replace(/[^A-Z0-9]+/g,'_');
+          renderVariationTable();
+        }
+      }
+    });
+  });
+  variationRows.forEach((r,i)=>{
+    wireVariationImageControl('var_'+i+'_main_image', i);
+    wireImageUrlInput('var_'+i+'_other_image_1', (val)=>{ variationRows[i].other_image_1 = val; });
+    wireImageUrlInput('var_'+i+'_other_image_2', (val)=>{ variationRows[i].other_image_2 = val; });
+    wireImageUrlInput('var_'+i+'_other_image_3', (val)=>{ variationRows[i].other_image_3 = val; });
+  });
+  wrap.querySelectorAll('[data-vdel]').forEach(btn=>btn.addEventListener('click', ()=>{
+    variationRows.splice(parseInt(btn.dataset.vdel,10),1);
+    renderVariationTable();
+  }));
+  wrap.querySelectorAll('[data-styleid-gen]').forEach(btn=>btn.addEventListener('click', ()=>{
+    const i = parseInt(btn.dataset.styleidGen,10);
+    const variationName = variationRows[i].color || variationRows[i].material || '';
+    variationRows[i].style_id = suggestStyleIdFromTitle(form.title, variationName);
+    renderVariationTable();
+  }));
+  const autoStyleIdBtn = wrap.querySelector('#autoStyleIdBtn');
+  if(autoStyleIdBtn) autoStyleIdBtn.addEventListener('click', ()=>{
+    if(!form.title.trim()){ showToast('Add a Product Name first'); return; }
+    variationRows.forEach(r=>{
+      if(!r.style_id.trim()) r.style_id = suggestStyleIdFromTitle(form.title, r.color || r.material || '');
+    });
+    renderVariationTable();
+    showToast('Generated Style IDs for empty rows');
+  });
+  updateSaveButtonLabel();
+}
+
+document.getElementById('addVariationBtn').addEventListener('click', ()=>{
+  variationRows.push(newVariationRow());
+  renderVariationTable();
+});
+
+// The Description (and any cached AI draft of it) almost always names a specific color/material
+// ("this brown leather keychain...") — reused as-is across every color variant it would be wrong
+// for all but one of them, so switching mode clears it and asks for a fresh one written for the
+// new context, instead of silently carrying stale text into the export.
+function clearStaleDescriptionOnModeSwitch(){
+  if(!form.description.trim() && !lastAIDescription) return;
+  form.description = '';
+  lastAIDescription = '';
+  showToast('Cleared the old Description — it likely named one specific color/material, so write or generate a fresh one for this listing type.');
+}
+
+document.getElementById('modeSingleBtn').addEventListener('click', ()=>{
+  if(mode==='single') return;
+  mode = 'single';
+  clearStaleDescriptionOnModeSwitch();
+  collapsedGroups.delete('images'); // single mode: this is the only place photos get set, keep it open
+  document.getElementById('formErrors').innerHTML = '';
+  renderForm();
+});
+document.getElementById('modeVariationBtn').addEventListener('click', ()=>{
+  if(mode==='variations') return;
+  mode = 'variations';
+  clearStaleDescriptionOnModeSwitch();
+  if(!form.group_id) { form.group_id = fieldOptions('group_id')[0]; }
+  if(!variationRows.length) variationRows.push(newVariationRow());
+  // These become fallback defaults once each variation row can carry its own photos — collapse
+  // them out of the way by default so the per-row Variations table (the primary place to set
+  // photos here) isn't buried under a section most people will just skip.
+  collapsedGroups.add('images');
+  document.getElementById('formErrors').innerHTML = '';
+  renderForm();
+});
+
+/* ============ Validation ============ */
+function validateSharedFields(excludeKeys){
+  const exclude = mode==='variations' ? PER_VARIANT_KEYS.concat(excludeKeys||[]) : (excludeKeys||[]);
+  const missing = [];
+  FIELDS.forEach(fd=>{
+    if(exclude.includes(fd.key)) return;
+    if(fd.required && !(form[fd.key]||'').toString().trim()){
+      missing.push(fd.label);
+      expandGroup(fd.group);
+      const w = document.getElementById('wrap_'+fd.key); if(w) w.classList.add('invalid');
+    }
+  });
+  return missing;
+}
+
+// Catches the exact mistake that got a real upload rejected: exporting the "Load Example"
+// placeholder data (fake example.com image link, made-up brand name) as if it were real.
+function isPlaceholderImage(url){
+  if(!url) return false;
+  const u = url.toLowerCase().trim();
+  return u.includes('example.com') || u === (SAMPLE.main_image||'').toLowerCase();
+}
+function checkUnchangedExample(){
+  if(form.title.trim() && form.title.trim() === SAMPLE.title && form.sku.trim() === SAMPLE.sku){
+    return 'This still looks like the unedited "Load Example" data — replace the Title, SKU, Image and other details with your real product before adding it.';
+  }
+  return null;
+}
+
+function validateForm(){
+  const missing = validateSharedFields();
+  const errors = [];
+  if(missing.length) errors.push(`Missing mandatory fields: ${missing.join(', ')}.`);
+  const price = parseFloat(form.price), mrp = parseFloat(form.mrp);
+  if(!isNaN(price) && !isNaN(mrp) && mrp < price){
+    errors.push('MRP must be greater than or equal to the Meesho Price.');
+    expandGroup('pricing');
+    document.getElementById('wrap_mrp').classList.add('invalid');
+  }
+  // Note: If SKU is already used in catalog, saving will cleanly update and replace the old file/entry instead of stacking.
+  const exampleErr = checkUnchangedExample();
+  if(exampleErr) errors.push(exampleErr);
+  if(isPlaceholderImage(form.main_image)){
+    errors.push("Main Image is still the example placeholder link (example.com isn't a real host) — Browse a real photo or paste a working URL.");
+    const w = document.getElementById('wrap_main_image'); if(w) w.classList.add('invalid');
+  }
+  return errors;
+}
+
+function validateVariations(){
+  const errors = [];
+  const missing = validateSharedFields(['main_image']);
+  if(missing.length) errors.push(`Missing mandatory fields: ${missing.join(', ')}.`);
+  if(!variationRows.length) errors.push('Add at least one variation.');
+  const exampleErr = checkUnchangedExample();
+  if(exampleErr) errors.push(exampleErr);
+  if(isPlaceholderImage(form.main_image)){
+    errors.push("Default Image 1 is still the example placeholder link (example.com isn't a real host) — Browse a real photo or paste a working URL.");
+    const w = document.getElementById('wrap_main_image'); if(w) w.classList.add('invalid');
+  }
+
+  const seenSuffixes = new Set();
+  variationRows.forEach((r,i)=>{
+    const label = `Variation ${i+1}`;
+    if(!r.color.trim()) errors.push(`${label}: Color is required.`);
+    if(SIZE_VARIES && !(r.size||'').trim()) errors.push(`${label}: Size is required.`);
+    if(!r.material.trim()) errors.push(`${label}: Material is required.`);
+    if(!r.price.toString().trim()) errors.push(`${label}: Price is required.`);
+    if(!r.mrp.toString().trim()) errors.push(`${label}: MRP is required.`);
+    if(!r.weight.toString().trim()) errors.push(`${label}: Weight is required.`);
+    if(!r.inventory.toString().trim()) errors.push(`${label}: Inventory is required.`);
+    if(!r.skuSuffix.trim()) errors.push(`${label}: SKU suffix is required.`);
+    const price = parseFloat(r.price), mrp = parseFloat(r.mrp);
+    if(!isNaN(price) && !isNaN(mrp) && mrp < price) errors.push(`${label}: MRP must be ≥ Price.`);
+    const rowImage = r.main_image.trim() || form.main_image;
+    if(!rowImage) errors.push(`${label}: needs a photo — set a Default Image 1 above, or Browse one just for this variation.`);
+    else if(r.main_image.trim() && isPlaceholderImage(r.main_image)) errors.push(`${label}: photo override is still the example placeholder link — add a real photo or clear the override.`);
+    const suffixKey = r.skuSuffix.trim().toLowerCase();
+    if(suffixKey){
+      if(seenSuffixes.has(suffixKey)) errors.push(`${label}: SKU suffix "${r.skuSuffix}" is repeated in this batch.`);
+      seenSuffixes.add(suffixKey);
+      // Existing SKUs in catalog will be updated & replaced instead of stacked as duplicates.
+    }
+  });
+  return errors;
+}
+
+/* ============ Actions ============ */
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2200);
+}
+
+document.getElementById('saveProductBtn').addEventListener('click', ()=>{
+  const errBox = document.getElementById('formErrors');
+
+  if(editingIndex!==null || mode==='single'){
+    const errors = validateForm();
+    if(errors.length){
+      errBox.innerHTML = `<div class="errbox">${errors.map(e=>`• ${escapeHtml(e)}`).join('<br>')}</div>`;
+      scrollToFirstInvalid();
+      return;
+    }
+    errBox.innerHTML = '';
+    const nowTimestamp = getFormattedTimestamp();
+    const record = Object.assign({}, form, {
+      _keywords: [...productKeywords],
+      _hints: [...sellerHints],
+      _timestamp: nowTimestamp,
+      _updatedAt: new Date().toISOString()
+    });
+
+    let targetIndex = editingIndex;
+    // If not explicitly in edit mode but SKU matches an existing catalog item, replace it instead of stacking duplicates!
+    if(targetIndex === null && form.sku && form.sku.trim()){
+      const matchIdx = products.findIndex(p => p.sku && p.sku.trim().toLowerCase() === form.sku.trim().toLowerCase());
+      if(matchIdx !== -1) targetIndex = matchIdx;
+    }
+
+    if(targetIndex === null){
+      products.push(record);
+      showToast('Added to catalog list');
+    } else {
+      record._wasReplaced = true;
+      products[targetIndex] = record;
+      showToast(`Replaced and updated "${record.sku}" in catalog list`);
+      editingIndex = null;
+    }
+
+    // If error row(s) from Meesho error report were being fixed, mark them resolved
+    if(Array.isArray(activeErrorFixRowIndices) && activeErrorFixRowIndices.length){
+      importedErrorRows = importedErrorRows.filter(r => !activeErrorFixRowIndices.includes(r.row));
+      renderErrorReportRows();
+      const statusEl = document.getElementById('errorReportStatus');
+      if(statusEl){
+        statusEl.innerHTML = importedErrorRows.length
+          ? `<span class="tag bad">Remaining issues to fix: ${importedErrorRows.length}</span>`
+          : `<span class="tag ok">✓ All flagged error items fixed and replaced in catalog list.</span>`;
+      }
+      activeErrorFixRowIndices = null;
+    } else if(typeof activeErrorFixIndex === 'number' && importedErrorRows[activeErrorFixIndex]){
+      importedErrorRows.splice(activeErrorFixIndex, 1);
+      renderErrorReportRows();
+      const statusEl = document.getElementById('errorReportStatus');
+      if(statusEl){
+        statusEl.innerHTML = importedErrorRows.length
+          ? `<span class="tag bad">Remaining issues to fix: ${importedErrorRows.length}</span>`
+          : `<span class="tag ok">✓ All flagged error items fixed and replaced in catalog list.</span>`;
+      }
+      activeErrorFixIndex = null;
+    }
+
+    saveState();
+    clearProductAIContext();
+    form = emptyForm();
+    renderForm();
+    renderList();
+
+    // Move to catalog tab automatically upon saving
+    switchTab('list');
+    const panelList = document.getElementById('panel-list');
+    if(panelList) panelList.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+
+  // mode === 'variations', creating new or batch
+  const errors = validateVariations();
+  if(errors.length){
+    errBox.innerHTML = `<div class="errbox">${errors.map(e=>`• ${escapeHtml(e)}`).join('<br>')}</div>`;
+    scrollToFirstInvalid();
+    return;
+  }
+  errBox.innerHTML = '';
+  const OVERRIDABLE_IMAGE_KEYS = ['main_image','other_image_1','other_image_2','other_image_3'];
+  const sharedKeys = FIELDS.map(f=>f.key).filter(k=>!PER_VARIANT_KEYS.includes(k) && !OVERRIDABLE_IMAGE_KEYS.includes(k) && k!=='sku');
+  
+  let replacedCount = 0;
+  let addedCount = 0;
+  const nowTimestamp = getFormattedTimestamp();
+
+  variationRows.forEach(r=>{
+    const fullSku = form.sku.trim() + '_' + r.skuSuffix.trim();
+    const record = { 
+      sku: fullSku,
+      _timestamp: nowTimestamp,
+      _updatedAt: new Date().toISOString()
+    };
+    sharedKeys.forEach(k=>{ record[k] = form[k]; });
+    OVERRIDABLE_IMAGE_KEYS.forEach(k=>{ record[k] = (r[k]||'').trim() || form[k]; });
+    record.color = r.color; record.material = r.material; record.style_id = r.style_id;
+    record.price = r.price; record.return_price = r.return_price; record.mrp = r.mrp;
+    record.weight = r.weight; record.inventory = r.inventory;
+    if(SIZE_VARIES) record.size = r.size;
+
+    // Check if this variation already exists: replace old record instead of stacking again!
+    const existingIdx = products.findIndex(p => p.sku && p.sku.trim().toLowerCase() === fullSku.toLowerCase());
+    if(existingIdx !== -1){
+      record._wasReplaced = true;
+      products[existingIdx] = record;
+      replacedCount++;
+    } else {
+      products.push(record);
+      addedCount++;
+    }
+  });
+
+  const msg = (replacedCount && addedCount)
+    ? `Saved: ${replacedCount} replaced existing, ${addedCount} added new`
+    : replacedCount
+      ? `Replaced ${replacedCount} existing variation${replacedCount===1?'':'s'} in catalog list`
+      : `Added ${variationRows.length} variation${variationRows.length===1?'':'s'} to catalog list`;
+  showToast(msg);
+
+  // If error row(s) from Meesho error report were being fixed as a variation batch, mark them all resolved!
+  if(Array.isArray(activeErrorFixRowIndices) && activeErrorFixRowIndices.length){
+    importedErrorRows = importedErrorRows.filter(r => !activeErrorFixRowIndices.includes(r.row));
+    renderErrorReportRows();
+    const statusEl = document.getElementById('errorReportStatus');
+    if(statusEl){
+      statusEl.innerHTML = importedErrorRows.length
+        ? `<span class="tag bad">Remaining issues to fix: ${importedErrorRows.length}</span>`
+        : `<span class="tag ok">✓ All flagged variation error rows fixed and replaced in catalog list.</span>`;
+    }
+    activeErrorFixRowIndices = null;
+  } else if(typeof activeErrorFixIndex === 'number' && importedErrorRows[activeErrorFixIndex]){
+    importedErrorRows.splice(activeErrorFixIndex, 1);
+    renderErrorReportRows();
+    const statusEl = document.getElementById('errorReportStatus');
+    if(statusEl){
+      statusEl.innerHTML = importedErrorRows.length
+        ? `<span class="tag bad">Remaining issues to fix: ${importedErrorRows.length}</span>`
+        : `<span class="tag ok">✓ All flagged error items fixed and replaced in catalog list.</span>`;
+    }
+    activeErrorFixIndex = null;
+  }
+
+  saveState();
+  clearProductAIContext();
+  mode = 'single';
+  variationRows = [];
+  form = emptyForm();
+  renderForm();
+  renderList();
+
+  // Move to catalog tab automatically upon saving
+  switchTab('list');
+  const panelList = document.getElementById('panel-list');
+  if(panelList) panelList.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+document.getElementById('cancelEditBtn').addEventListener('click', ()=>{
+  editingIndex = null;
+  activeErrorFixIndex = null;
+  activeErrorFixRowIndices = null;
+  mode = 'single';
+  variationRows = [];
+  clearProductAIContext();
+  form = emptyForm();
+  document.getElementById('formErrors').innerHTML = '';
+  renderForm();
+});
+
+document.getElementById('loadSampleBtn').addEventListener('click', ()=>{
+  if(ACTIVE_CATEGORY !== 'keychains'){ showToast('No example available for this category yet'); return; }
+  editingIndex = null;
+  mode = 'single';
+  variationRows = [];
+  clearProductAIContext();
+  form = Object.assign(emptyForm(), SAMPLE);
+  document.getElementById('formErrors').innerHTML = '';
+  renderForm();
+  showToast('Example values loaded — edit before adding');
+});
+
+document.getElementById('resetFormBtn').addEventListener('click', ()=>{
+  editingIndex = null;
+  mode = 'single';
+  variationRows = [];
+  clearProductAIContext();
+  form = emptyForm();
+  document.getElementById('formErrors').innerHTML = '';
+  renderForm();
+});
+
+document.getElementById('clearAllBtn').addEventListener('click', ()=>{
+  if(!products.length) return;
+  if(confirm('Remove all products from your catalog list? This cannot be undone.')){
+    products = [];
+    saveState();
+    renderList();
+  }
+});
+
+/* ============ Render: list ============ */
+function renderList(){
+  document.getElementById('tabCount').textContent = products.length ? `(${products.length})` : '';
+  document.getElementById('listCountPill').textContent = `${products.length} product${products.length===1?'':'s'} ready`;
+  document.getElementById('exportBtn').disabled = products.length===0;
+  const wrap = document.getElementById('listTableWrap');
+  if(!products.length){
+    wrap.innerHTML = '<div class="empty">No products yet. Add one from the "Add / Edit Product" tab.</div>';
+    return;
+  }
+  wrap.innerHTML = `<table><thead><tr>
+    <th>SKU</th><th>Title</th><th>Price</th><th>MRP</th><th>Images</th><th>Timestamp</th><th></th>
+  </tr></thead><tbody>` + products.map((p,i)=>{
+    const imgCount = ['main_image','other_image_1','other_image_2','other_image_3'].filter(k=>p[k]).length;
+    const timeDisplay = p._timestamp || (p._updatedAt ? getFormattedTimestamp(p._updatedAt) : '—');
+    const wasReplaced = p._wasReplaced ? '<span class="tag ok" style="font-size:10px;padding:2px 6px;margin-left:5px;font-weight:700;" title="Replaced old catalog record/file">✓ Replaced</span>' : '';
+    return `<tr>
+      <td><strong>${escapeHtml(p.sku)}</strong>${wasReplaced}</td>
+      <td>${escapeHtml((p.title||'').slice(0,50))}${(p.title||'').length>50?'…':''}</td>
+      <td>₹${escapeHtml(p.price)}</td>
+      <td>₹${escapeHtml(p.mrp)}</td>
+      <td>${imgCount} img${imgCount===1?'':'s'}</td>
+      <td style="white-space:nowrap;font-size:12px;color:var(--muted);"><span style="font-family:monospace;background:var(--card-alt);padding:3px 7px;border-radius:4px;border:1px solid var(--border);">${escapeHtml(timeDisplay)}</span></td>
+      <td style="text-align:right;white-space:nowrap;">
+        <button class="icon-btn" title="Download this product's Excel with timestamp" data-dl="${i}">⬇</button>
+        <button class="icon-btn" title="Edit" data-edit="${i}">✏️</button>
+        <button class="icon-btn" title="Duplicate" data-dup="${i}">📄</button>
+        <button class="icon-btn" title="Delete" data-del="${i}">🗑️</button>
+      </td>
+    </tr>`;
+  }).join('') + `</tbody></table>`;
+
+  wrap.querySelectorAll('[data-dl]').forEach(btn=>btn.addEventListener('click', async ()=>{
+    const idx = parseInt(btn.dataset.dl,10);
+    const product = products[idx];
+    btn.disabled = true;
+    try{
+      const fileStamp = getFileTimestamp();
+      const filename = `${product.sku||'product'}_${fileStamp}.xlsx`;
+      await downloadWorkbookFromServer([product], filename);
+      showToast(`Downloaded ${filename}`);
+    }catch(err){
+      showToast(err.message||'Download failed');
+    }finally{
+      btn.disabled = false;
+    }
+  }));
+  wrap.querySelectorAll('[data-edit]').forEach(btn=>btn.addEventListener('click', ()=>{
+    editingIndex = parseInt(btn.dataset.edit,10);
+    mode = 'single';
+    variationRows = [];
+    clearProductAIContext();
+    const item = products[editingIndex];
+    form = Object.assign(emptyForm(), item);
+    if(Array.isArray(item._keywords)) productKeywords = [...item._keywords];
+    if(Array.isArray(item._hints)) sellerHints = [...item._hints];
+    document.getElementById('formErrors').innerHTML = '';
+    renderForm();
+    switchTab('form');
+  }));
+  wrap.querySelectorAll('[data-dup]').forEach(btn=>btn.addEventListener('click', ()=>{
+    const idx = parseInt(btn.dataset.dup,10);
+    const copy = Object.assign({}, products[idx]);
+    copy.sku = copy.sku + '_COPY';
+    copy._timestamp = getFormattedTimestamp();
+    copy._updatedAt = new Date().toISOString();
+    copy._wasReplaced = false;
+    products.push(copy);
+    saveState();
+    renderList();
+    showToast('Duplicated — remember to change the SKU');
+  }));
+  wrap.querySelectorAll('[data-del]').forEach(btn=>btn.addEventListener('click', ()=>{
+    const idx = parseInt(btn.dataset.del,10);
+    if(confirm(`Remove "${products[idx].sku}" from the list?`)){
+      products.splice(idx,1);
+      saveState();
+      renderList();
+    }
+  }));
+}
+
+function escapeHtml(s){ return (s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function suggestSkuFromTitle(title){
+  const base = (title||'').toUpperCase().replace(/[^A-Z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,24) || 'PRODUCT';
+  const suffix = Math.random().toString(36).slice(2,6).toUpperCase();
+  return `${base}_${suffix}`;
+}
+function suggestStyleIdFromTitle(title, variationName){
+  const base = (title||'').toUpperCase().replace(/[^A-Z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,14) || 'STYLE';
+  const varPart = (variationName||'').toUpperCase().replace(/[^A-Z0-9]+/g,'').slice(0,8);
+  const suffix = Math.random().toString(36).slice(2,6).toUpperCase();
+  return [base, varPart, suffix].filter(Boolean).join('_');
+}
+
+/* ============ Guided Setup: interactive step-by-step Q&A wizard with
+   "Enhance with AI", "Flag for Review", and end-of-flow AI listing synthesis. ============ */
+let wizardAborted = false;
+let wizardCurrentResolve = null;
+let wizardCurrentQuestionIndex = 0;
+
+function updateWizardFlaggedHeader(){
+  const tag = document.getElementById('wizardFlaggedTag');
+  if(!tag) return;
+  const count = Object.keys(wizardFlaggedItems).length;
+  if(count > 0){
+    tag.style.display = 'inline-block';
+    tag.textContent = `🚩 ${count} Flagged`;
+  } else {
+    tag.style.display = 'none';
+  }
+}
+
+function wizardLog(role, text, isFlagged){
+  const log = document.getElementById('wizardLog');
+  if(!log) return;
+  const bubble = document.createElement('div');
+  bubble.className = 'wizard-bubble wizard-' + role;
+  if(role === 'user' && isFlagged){
+    bubble.innerHTML = `${escapeHtml(text)} <span class="flag-inline">🚩 Flagged for AI</span>`;
+  } else {
+    bubble.textContent = text;
+  }
+  log.appendChild(bubble);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function getAiSuggestionForWizardField(opts, currentAnswers){
+  if(!IS_SERVED) throw new Error(describeAIError());
+  const geminiKey = (profile.geminiKey||'').trim();
+  if(!geminiKey && !serverHasApiKey){
+    throw new Error('Add a Gemini API key in ⚙️ Settings or configure GEMINI_API_KEY.');
+  }
+  const model = (profile.geminiTextModel || DEFAULT_GEMINI_TEXT_MODEL).trim();
+  let imageInfo = null;
+  try{ imageInfo = await getMainImageBase64(); }catch(e){}
+
+  if(opts.key === 'description' || opts.type === 'textarea'){
+    if(!productKeywords.length && (imageInfo || currentAnswers.title)){
+      try{
+        const kwRes = await extractKeywordsAndHintsFromImage(imageInfo);
+        if(kwRes && Array.isArray(kwRes.keywords) && kwRes.keywords.length){
+          productKeywords = kwRes.keywords;
+          if(Array.isArray(kwRes.suggested_hints)) aiSuggestedHints = kwRes.suggested_hints;
+        }
+      }catch(e){}
+    }
+    const descText = await generateDescriptionFromKnownFields(geminiKey, model, currentAnswers, imageInfo);
+    return {
+      suggestedValue: descText,
+      reason: `Woven with ${productKeywords.length} buyer search keywords & seller hints`
+    };
+  }
+
+  const prompt = `You are an expert specialist in Meesho catalog listings for the category "${ACTIVE_CATEGORY_NAME}".
+The seller is answering a step-by-step Q&A wizard to create a product listing, and clicked "Enhance with AI" on this specific field:
+Field Key: "${opts.key || ''}"
+Field Name: "${opts.label || opts.question}"
+Question: "${opts.question}"
+Allowed Options (dropdown): ${opts.options && opts.options.length ? JSON.stringify(opts.options) : 'None (free-form)'}
+Is Number: ${Boolean(opts.numberType)}
+Current known answers so far:
+${JSON.stringify(currentAnswers, null, 2)}
+
+Provide the single best, most accurate, and Meesho-compliant suggested value for this question.
+Requirements:
+1. If Allowed Options are provided, suggestedValue MUST be an exact match from that list.
+2. If it is a Title, suggest a high-CTR, compliant title under 100 characters with no banned words.
+3. If it is Price, suggest a realistic competitive price in INR.
+4. If it is MRP, ensure MRP >= Price.
+5. If it is Return Price, suggest a discount (~10-15 INR lower than Price).
+6. If it is Net Weight, give realistic weight in grams.
+7. Return ONLY valid JSON (no markdown, no backticks):
+{
+  "suggestedValue": "...",
+  "reason": "short explanation"
+}`;
+
+  const respText = imageInfo
+    ? await callGeminiText(geminiKey, model, imageInfo.base64, imageInfo.mimeType, prompt)
+    : await callGeminiTextOnly(geminiKey, model, prompt);
+
+  let parsed = null;
+  try{
+    parsed = JSON.parse(respText.replace(/^```json\s*|```\s*$/g,'').trim());
+  }catch(e){
+    const clean = respText.replace(/^```json\s*|```\s*$/g,'').trim();
+    const m = clean.match(/"suggestedValue"\s*:\s*"([^"]+)"/);
+    if(m) parsed = { suggestedValue: m[1], reason: 'Recommended for Meesho' };
+    else parsed = { suggestedValue: clean, reason: 'AI suggested' };
+  }
+  if(!parsed || !parsed.suggestedValue){
+    throw new Error('No suggestion generated — please select or enter manually.');
+  }
+  return parsed;
+}
+
+// opts: {key, label, question, type:'text'|'chips'|'choice'|'textarea', options, required, numberType, suggested, allowCustom}
+function askWizardQuestion(opts){
+  return new Promise(resolve=>{
+    if(wizardAborted){ resolve(null); return; }
+    wizardCurrentQuestionIndex++;
+    const progTag = document.getElementById('wizardProgressTag');
+    if(progTag) progTag.textContent = `Step ${wizardCurrentQuestionIndex}`;
+
+    wizardLog('bot', opts.question);
+    const inputArea = document.getElementById('wizardInputArea');
+    inputArea.innerHTML = '';
+
+    const isDescField = opts.key === 'description' || opts.type === 'textarea';
+    let isQuestionFlagged = Boolean(opts.key && wizardFlaggedItems[opts.key]);
+
+    const answer = (value, displayText)=>{
+      wizardCurrentResolve = null;
+      if(isQuestionFlagged && opts.key){
+        wizardFlaggedItems[opts.key] = {
+          key: opts.key,
+          label: opts.label || opts.question,
+          question: opts.question,
+          answer: (value!=null && value!=='') ? String(value) : '(Pending AI determination)'
+        };
+        wizardLog('user', displayText!=null ? displayText : (value==null || value==='' ? '(skipped & flagged for AI)' : String(value)), true);
+      } else {
+        if(opts.key) delete wizardFlaggedItems[opts.key];
+        wizardLog('user', displayText!=null ? displayText : (value==null || value==='' ? '(skipped)' : String(value)), false);
+      }
+      updateWizardFlaggedHeader();
+      inputArea.innerHTML = '';
+      resolve(value);
+    };
+    wizardCurrentResolve = answer;
+
+    let primaryInputEl = null;
+
+    if(opts.type === 'chips' || opts.type === 'choice'){
+      const wrap = document.createElement('div');
+      wrap.className = 'wizard-chips';
+      (opts.options||[]).forEach(o=>{
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'chip-btn'; b.textContent = o;
+        b.dataset.val = o;
+        b.addEventListener('click', ()=>answer(o));
+        wrap.appendChild(b);
+      });
+      inputArea.appendChild(wrap);
+      if(opts.allowCustom || !opts.options || !opts.options.length){
+        const row = document.createElement('div');
+        row.className = 'row-inline';
+        row.style.marginTop = '6px';
+        const inp = document.createElement('input');
+        inp.type = opts.numberType ? 'number' : 'text';
+        inp.placeholder = 'Or type your own…';
+        primaryInputEl = inp;
+        row.appendChild(inp);
+        const useBtn = document.createElement('button');
+        useBtn.type = 'button'; useBtn.className = 'btn btn-outline btn-sm'; useBtn.textContent = 'Use';
+        useBtn.addEventListener('click', ()=>{ if(inp.value.trim()) answer(inp.value.trim()); });
+        inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); useBtn.click(); } });
+        row.appendChild(useBtn);
+        inputArea.appendChild(row);
+      }
+    } else if(isDescField){
+      const wrap = document.createElement('div');
+      wrap.style.display = 'flex';
+      wrap.style.flexDirection = 'column';
+      wrap.style.gap = '8px';
+
+      // Live Keywords & Hints helper box inside Wizard
+      const kwBox = document.createElement('div');
+      kwBox.style.background = 'var(--card-alt)';
+      kwBox.style.border = '1px solid var(--border)';
+      kwBox.style.borderRadius = '8px';
+      kwBox.style.padding = '10px 12px';
+      kwBox.style.fontSize = '12px';
+
+      function updateWizKeywordsBox(){
+        kwBox.innerHTML = `
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <strong style="color:var(--pink-dark);font-size:12px;">🎯 Suggested Search Keywords (${productKeywords.length}):</strong>
+            <button type="button" class="btn btn-outline btn-sm" id="wizSuggestKwBtn" style="font-size:11px;padding:2px 8px;height:auto;">
+              ${productKeywords.length ? '🔄 Refresh' : '🔍 Find from Photo'}
+            </button>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">
+            ${productKeywords.length ? productKeywords.map(k=>`<span class="keyword-chip search-kw" style="font-size:11px;padding:2px 8px;">${escapeHtml(k)}</span>`).join('') : '<span style="color:var(--muted);font-style:italic;">Auto-extracted from photo and title</span>'}
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+            <strong style="color:var(--text);font-size:12px;">💡 Seller Hints (${sellerHints.length}):</strong>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;">
+            ${sellerHints.length ? sellerHints.map((h, i)=>`<span class="keyword-chip seller-hint" style="font-size:11px;padding:2px 8px;">💡 ${escapeHtml(h)} <button type="button" class="chip-remove" data-wiz-del-hint="${i}">&times;</button></span>`).join('') : '<span style="color:var(--muted);font-style:italic;">No custom hints yet</span>'}
+          </div>
+          <div class="row-inline" style="gap:6px;">
+            <input type="text" id="wizHintInput" placeholder="Add custom hint (e.g. waterproof, gift box)..." style="flex:1;font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid var(--border);">
+            <button type="button" class="btn btn-outline btn-sm" id="wizAddHintBtn" style="font-size:11px;white-space:nowrap;">+ Add Hint</button>
+          </div>
+        `;
+        const addBtn = kwBox.querySelector('#wizAddHintBtn');
+        const inp = kwBox.querySelector('#wizHintInput');
+        const sugBtn = kwBox.querySelector('#wizSuggestKwBtn');
+        if(addBtn && inp){
+          const doAdd = ()=>{
+            const val = inp.value.trim();
+            if(val && !sellerHints.includes(val)){
+              sellerHints.push(val);
+              inp.value = '';
+              updateWizKeywordsBox();
+            }
+          };
+          addBtn.onclick = doAdd;
+          inp.onkeydown = (e)=>{ if(e.key==='Enter'){ e.preventDefault(); doAdd(); } };
+        }
+        kwBox.querySelectorAll('[data-wiz-del-hint]').forEach(b=>{
+          b.onclick = (e)=>{
+            e.stopPropagation();
+            const idx = parseInt(b.dataset.wizDelHint, 10);
+            sellerHints.splice(idx, 1);
+            updateWizKeywordsBox();
+          };
+        });
+        if(sugBtn){
+          sugBtn.onclick = async ()=>{
+            sugBtn.disabled = true; sugBtn.textContent = 'Searching…';
+            await triggerKeywordExtractionFromImage(false);
+            updateWizKeywordsBox();
+          };
+        }
+      }
+      updateWizKeywordsBox();
+      wrap.appendChild(kwBox);
+
+      const ta = document.createElement('textarea');
+      ta.rows = 5;
+      ta.style.width = '100%';
+      ta.style.minHeight = '110px';
+      ta.style.fontSize = '13px';
+      ta.style.lineHeight = '1.5';
+      ta.style.padding = '10px 12px';
+      ta.style.borderRadius = '8px';
+      ta.style.border = '1px solid var(--border)';
+      ta.placeholder = 'Write product highlights or notes here, or click "✨ Write Full Description with AI" below, or click "⏩ Skip Description"...';
+      if(opts.suggested) ta.value = opts.suggested;
+      primaryInputEl = ta;
+      wrap.appendChild(ta);
+
+      const btnRow = document.createElement('div');
+      btnRow.className = 'row-inline';
+      btnRow.style.gap = '8px';
+      btnRow.style.flexWrap = 'wrap';
+
+      const sendBtn = document.createElement('button');
+      sendBtn.type = 'button';
+      sendBtn.className = 'btn btn-primary btn-sm';
+      sendBtn.textContent = 'Save & Next ➡️';
+      sendBtn.addEventListener('click', ()=>{
+        const v = ta.value.trim();
+        answer(v || null);
+      });
+      btnRow.appendChild(sendBtn);
+
+      const directSkip = document.createElement('button');
+      directSkip.type = 'button';
+      directSkip.className = 'chip-btn chip-skip';
+      directSkip.style.padding = '6px 14px';
+      directSkip.textContent = '⏩ Skip Description';
+      directSkip.title = 'Skip description — AI will write it at the end';
+      directSkip.addEventListener('click', ()=>{
+        answer(null, '(skipped — will be auto-generated by AI)');
+      });
+      btnRow.appendChild(directSkip);
+
+      wrap.appendChild(btnRow);
+      inputArea.appendChild(wrap);
+      setTimeout(()=>ta.focus(), 50);
+    } else {
+      const row = document.createElement('div');
+      row.className = 'row-inline';
+      const inp = document.createElement('input');
+      inp.type = opts.numberType ? 'number' : 'text';
+      inp.style.flex = '1';
+      if(opts.suggested) inp.value = opts.suggested;
+      primaryInputEl = inp;
+      row.appendChild(inp);
+      const submitBtn = document.createElement('button');
+      submitBtn.type = 'button'; submitBtn.className = 'btn btn-primary btn-sm'; submitBtn.textContent = 'Send';
+      submitBtn.addEventListener('click', ()=>{
+        const v = inp.value.trim();
+        if(!v && opts.required && !isQuestionFlagged){ inp.focus(); return; }
+        answer(v || null);
+      });
+      inp.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); submitBtn.click(); } });
+      row.appendChild(submitBtn);
+      inputArea.appendChild(row);
+      setTimeout(()=>inp.focus(), 50);
+    }
+
+    // Wizard action bar below each question: "Enhance with AI", "Flag for Review", Skip controls
+    const actionsBar = document.createElement('div');
+    actionsBar.className = 'wizard-actions-bar';
+
+    const aiBtn = document.createElement('button');
+    aiBtn.type = 'button';
+    aiBtn.className = 'btn btn-outline btn-sm wizard-ai-btn';
+    aiBtn.id = 'wizardAiSuggestBtn';
+    aiBtn.innerHTML = isDescField ? '✨ Write Full Description with AI' : '✨ Enhance with AI';
+
+    const flagBtn = document.createElement('button');
+    flagBtn.type = 'button';
+    flagBtn.className = `btn btn-outline btn-sm wizard-flag-btn ${isQuestionFlagged ? 'flagged' : ''}`;
+    flagBtn.id = 'wizardFlagBtn';
+    flagBtn.innerHTML = isQuestionFlagged ? '🚩 Flagged for AI Review' : '⚐ Flag for Review';
+
+    actionsBar.appendChild(aiBtn);
+    actionsBar.appendChild(flagBtn);
+
+    if(!opts.required){
+      const skipBtn = document.createElement('button');
+      skipBtn.type = 'button';
+      skipBtn.className = 'chip-btn chip-skip';
+      skipBtn.textContent = isDescField ? '⏩ Skip (Let AI generate at end)' : 'Skip';
+      skipBtn.addEventListener('click', ()=>answer(null, isDescField ? '(skipped — will be auto-generated by AI)' : '(skipped)'));
+      actionsBar.appendChild(skipBtn);
+    } else {
+      const skipFlagBtn = document.createElement('button');
+      skipFlagBtn.type = 'button';
+      skipFlagBtn.className = 'chip-btn chip-skip';
+      skipFlagBtn.title = 'Skip for now — AI will resolve this at the end';
+      skipFlagBtn.textContent = 'Skip & Flag for AI';
+      skipFlagBtn.addEventListener('click', ()=>{
+        isQuestionFlagged = true;
+        flagBtn.className = 'btn btn-outline btn-sm wizard-flag-btn flagged';
+        flagBtn.innerHTML = '🚩 Flagged for AI Review';
+        answer(null, '(skipped & flagged for AI)');
+      });
+      actionsBar.appendChild(skipFlagBtn);
+    }
+
+    inputArea.appendChild(actionsBar);
+
+    const statusEl = document.createElement('div');
+    statusEl.id = 'wizardActionStatus';
+    statusEl.style.marginTop = '6px';
+    statusEl.style.fontSize = '12px';
+    inputArea.appendChild(statusEl);
+
+    // Wire Flag Button
+    flagBtn.addEventListener('click', ()=>{
+      isQuestionFlagged = !isQuestionFlagged;
+      flagBtn.className = `btn btn-outline btn-sm wizard-flag-btn ${isQuestionFlagged ? 'flagged' : ''}`;
+      flagBtn.innerHTML = isQuestionFlagged ? '🚩 Flagged for AI Review' : '⚐ Flag for Review';
+      if(isQuestionFlagged && opts.key){
+        wizardFlaggedItems[opts.key] = {
+          key: opts.key,
+          label: opts.label || opts.question,
+          question: opts.question,
+          answer: primaryInputEl && primaryInputEl.value.trim() ? primaryInputEl.value.trim() : '(Pending AI determination)'
+        };
+        statusEl.innerHTML = '<span class="tag" style="background:#FEF3C7;color:#92400E;border:1px solid #FCD34D;">🚩 Question flagged — will be reviewed &amp; resolved with AI at the end</span>';
+      } else if(opts.key){
+        delete wizardFlaggedItems[opts.key];
+        statusEl.innerHTML = '';
+      }
+      updateWizardFlaggedHeader();
+    });
+
+    // Wire Enhance with AI Button
+    aiBtn.addEventListener('click', async ()=>{
+      aiBtn.disabled = true;
+      aiBtn.textContent = '✨ Thinking…';
+      statusEl.innerHTML = `<span class="tag idle">✨ ${isDescField ? 'Writing Meesho description with AI…' : 'Asking AI for recommendation…'}</span>`;
+      try{
+        const res = await getAiSuggestionForWizardField(opts, form);
+        if(isDescField){
+          statusEl.innerHTML = `<span class="tag ok">✨ AI Description generated (${res.suggestedValue.length} characters)! Review above or edit, then click Save &amp; Next.</span>`;
+        } else {
+          statusEl.innerHTML = `<span class="tag ok">✨ AI Suggested: <strong>${escapeHtml(res.suggestedValue)}</strong> <span style="font-size:11px;color:var(--muted);">(${escapeHtml(res.reason||'optimal for Meesho')})</span></span>`;
+        }
+        if(opts.type === 'chips' || opts.type === 'choice'){
+          const matchingChip = inputArea.querySelector(`.chip-btn[data-val="${CSS.escape(res.suggestedValue)}"]`);
+          if(matchingChip){
+            matchingChip.classList.add('ai-suggested');
+            matchingChip.scrollIntoView({behavior:'smooth', block:'nearest'});
+            matchingChip.focus();
+          } else if(primaryInputEl){
+            primaryInputEl.value = res.suggestedValue;
+            primaryInputEl.focus();
+          }
+        } else if(primaryInputEl){
+          primaryInputEl.value = res.suggestedValue;
+          primaryInputEl.focus();
+          primaryInputEl.style.borderColor = 'var(--accent)';
+          setTimeout(()=>{ if(primaryInputEl) primaryInputEl.style.borderColor = ''; }, 1200);
+        }
+      }catch(err){
+        statusEl.innerHTML = `<span class="tag bad">✗ ${escapeHtml(describeAIError(err))}</span>`;
+      }finally{
+        aiBtn.disabled = false;
+        aiBtn.innerHTML = isDescField ? '✨ Write Full Description with AI' : '✨ Enhance with AI';
+      }
+    });
+  });
+}
+
+async function summarizeAndGenerateListingWithAI(answers, flaggedItems, isVariation, pendingColors){
+  const geminiKey = (profile.geminiKey||'').trim();
+  const model = (profile.geminiTextModel || DEFAULT_GEMINI_TEXT_MODEL).trim();
+  let imageInfo = null;
+  try{ imageInfo = await getMainImageBase64(); }catch(e){}
+
+  const flaggedArr = Object.keys(flaggedItems).map(k=>({
+    key: k,
+    label: flaggedItems[k].label || k,
+    question: flaggedItems[k].question,
+    userAnswer: flaggedItems[k].answer,
+    validOptions: fieldByKey(k)?.options || null
+  }));
+
+  const prompt = `You are an expert Indian Ecommerce Catalog Specialist writing a high-converting listing for Meesho.
+Category: "${ACTIVE_CATEGORY_NAME}"
+
+Answers gathered from seller Q&A:
+${JSON.stringify(answers, null, 2)}
+
+Target Major Search Keywords (top queries searched by buyers on Meesho):
+${productKeywords.length ? productKeywords.map(k=>`• ${k}`).join('\n') : 'Auto-infer high-volume keywords from photo and attributes'}
+
+Seller Feature Hints & USPs:
+${sellerHints.length ? sellerHints.map(h=>`• ${h}`).join('\n') : 'None specified'}
+
+Flagged questions / uncertain items from seller:
+${JSON.stringify(flaggedArr, null, 2)}
+
+Instructions:
+1. TITLE: Create an optimized Meesho product title (under 100 characters). Format: Brand (if any) + Defining Material + Top Search Keyword/Usage + Key Feature/Shape + Product Type + Pack Count/Color. Do NOT use spam/banned terms (e.g. "Best", "Top", "Guaranteed", "Offer", "Discount", "No.1").
+2. DESCRIPTION: Write an engaging, well-formatted description (approx 900-1400 characters). Include:
+   - 2-3 engaging opening sentences introducing utility and style, naturally weaving in the target search keywords
+   - "Key Highlights & Features:" with 5-7 clear bullet points (- ) highlighting material, build, and incorporating the seller hints/USPs
+   - "Specifications & Product Care:" bullet points (cleaning instructions, dimensions, package contents)
+   - Ensure ALL target search keywords and seller hints are embedded organically into the description text!
+3. RESOLVE FLAGGED ITEMS: For each item in the flagged list, provide a high-confidence, valid recommendation.
+   - If validOptions are provided for that field, your resolved value MUST be one of those exact strings.
+   - If HSN is flagged, choose a valid HSN matching the category's standard HSNs.
+   - If MRP or Return Price is flagged, ensure Meesho Price <= MRP, and Return Price is approx ₹10-15 lower than Meesho Price to qualify for Meesho's special return discount badge.
+   - Include a concise 1-sentence reason for each resolution.
+4. VALIDATE & ENHANCE ATTRIBUTES:
+   - Ensure SKU ID is concise, uppercase, and unique.
+   - Suggest a Style ID if missing.
+   - Price, MRP, Return Price formatted as numbers.
+
+Return ONLY a valid JSON object matching this schema (no markdown formatting, no code fences):
+{
+  "title": "Optimized Meesho Product Title",
+  "description": "Full bulleted description text",
+  "sku": "SKU_SUGGESTION",
+  "style_id": "STYLE_ID",
+  "price": "299",
+  "return_price": "285",
+  "mrp": "599",
+  "resolved_flags": [
+    {
+      "key": "hsn",
+      "label": "HSN ID",
+      "value": "73269099",
+      "reason": "Standard GST code for metal/steel keychains"
+    }
+  ],
+  "attributes": {
+    "color": "Silver",
+    "material": "Stainless Steel",
+    "weight": "45",
+    "net_quantity": "1"
+  },
+  "summary_highlights": "Brief 1-2 sentence overview of why this listing is optimized"
+}`;
+
+  const respText = imageInfo
+    ? await callGeminiText(geminiKey, model, imageInfo.base64, imageInfo.mimeType, prompt)
+    : await callGeminiTextOnly(geminiKey, model, prompt);
+
+  let parsed = null;
+  try{
+    parsed = JSON.parse(respText.replace(/^```json\s*|```\s*$/g,'').trim());
+  }catch(e){
+    throw new Error('Could not parse AI response — please retry.');
+  }
+  return parsed;
+}
+
+function renderWizardAiResultCard(res, isVariation, pendingColors){
+  const resBox = document.getElementById('wizardAiGenResult');
+  if(!resBox) return;
+
+  const resolvedFlags = res.resolved_flags || [];
+  const title = res.title || form.title || '';
+  const desc = res.description || form.description || '';
+  const price = res.price || form.price || '';
+  const mrp = res.mrp || form.mrp || '';
+  const retPrice = res.return_price || form.return_price || '';
+  const sku = res.sku || form.sku || '';
+
+  resBox.innerHTML = `
+    <div style="background:#fff;border:1px solid var(--pink-border);border-radius:12px;padding:16px;box-shadow:var(--shadow-sm);">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px;border-bottom:1px solid var(--border);padding-bottom:10px;">
+        <strong style="color:var(--pink-dark);font-size:15px;display:flex;align-items:center;gap:6px;">
+          <span>✨ AI Generated Meesho Listing</span>
+        </strong>
+        <span class="tag ok">Validated &amp; Ready</span>
+      </div>
+
+      <div style="margin-bottom:12px;">
+        <label style="font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px;">Optimized Title</label>
+        <div style="font-size:14px;font-weight:700;color:var(--text);background:var(--card-alt);padding:8px 12px;border-radius:8px;border:1px solid var(--border);">${escapeHtml(title)}</div>
+      </div>
+
+      ${productKeywords.length || sellerHints.length ? `
+        <div style="margin-bottom:12px;background:var(--card-alt);border:1px solid var(--border);border-radius:8px;padding:8px 10px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+            <label style="font-size:11.5px;font-weight:700;color:var(--text);margin:0;">Keywords &amp; Hints Incorporated:</label>
+            <span style="font-size:11px;color:var(--ok);font-weight:600;">✓ Integrated in Title &amp; Description</span>
+          </div>
+          <div style="display:flex;flex-wrap:wrap;gap:4px;">
+            ${productKeywords.map(k=>`<span class="keyword-chip search-kw covered" style="font-size:11px;padding:2px 8px;">✓ ${escapeHtml(k)}</span>`).join('')}
+            ${sellerHints.map(h=>`<span class="keyword-chip seller-hint covered" style="font-size:11px;padding:2px 8px;">✓ 💡 ${escapeHtml(h)}</span>`).join('')}
+          </div>
+        </div>
+      ` : ''}
+
+      ${resolvedFlags.length ? `
+        <div style="background:#FFFBEB;border:1px solid #FCD34D;border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+          <strong style="font-size:13px;color:#92400E;display:block;margin-bottom:6px;">🚩 Resolved Flagged Questions:</strong>
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            ${resolvedFlags.map(rf=>`
+              <div style="font-size:12.5px;line-height:1.45;display:flex;align-items:baseline;gap:6px;">
+                <span style="color:#16A34A;font-weight:700;">✓</span>
+                <div>
+                  <strong>${escapeHtml(rf.label||rf.key)}:</strong> <span style="font-weight:600;color:#1E293B;">${escapeHtml(rf.value)}</span>
+                  <span style="color:#78350F;font-size:11.5px;margin-left:4px;">— ${escapeHtml(rf.reason)}</span>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      ` : ''}
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:14px;">
+        <div style="background:var(--card-alt);border:1px solid var(--border);border-radius:8px;padding:8px 10px;">
+          <span style="font-size:11px;color:var(--muted);display:block;">Meesho Price</span>
+          <strong style="font-size:15px;color:var(--pink-dark);">₹${escapeHtml(price)}</strong>
+        </div>
+        <div style="background:var(--card-alt);border:1px solid var(--border);border-radius:8px;padding:8px 10px;">
+          <span style="font-size:11px;color:var(--muted);display:block;">MRP</span>
+          <strong style="font-size:15px;color:var(--text);">₹${escapeHtml(mrp)}</strong>
+        </div>
+        <div style="background:var(--card-alt);border:1px solid var(--border);border-radius:8px;padding:8px 10px;">
+          <span style="font-size:11px;color:var(--muted);display:block;">Return Price</span>
+          <strong style="font-size:15px;color:var(--text);">${retPrice ? '₹'+escapeHtml(retPrice) : '—'}</strong>
+        </div>
+        <div style="background:var(--card-alt);border:1px solid var(--border);border-radius:8px;padding:8px 10px;">
+          <span style="font-size:11px;color:var(--muted);display:block;">SKU ID</span>
+          <strong style="font-size:13px;color:var(--text);word-break:break-all;">${escapeHtml(sku)}</strong>
+        </div>
+      </div>
+
+      <div style="margin-bottom:14px;">
+        <label style="font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px;">Description Preview</label>
+        <div style="background:var(--card-alt);border:1px solid var(--border);border-radius:8px;padding:10px 12px;font-size:12.5px;max-height:160px;overflow-y:auto;white-space:pre-wrap;line-height:1.5;">${escapeHtml(desc)}</div>
+      </div>
+
+      <div class="row-inline" style="gap:10px;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:12px;">
+        <button type="button" class="btn btn-primary" id="wizardApproveAiListingBtn" style="padding:9px 18px;">
+          ✅ Approve &amp; Fill Form
+        </button>
+        <button type="button" class="btn btn-outline" id="wizardAddDirectBtn" style="padding:9px 18px;">
+          🚀 Add Directly to Catalog List
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('wizardApproveAiListingBtn').addEventListener('click', ()=>{
+    applyWizardAiResultToForm(res, isVariation, pendingColors);
+  });
+
+  document.getElementById('wizardAddDirectBtn').addEventListener('click', ()=>{
+    applyWizardAiResultToForm(res, isVariation, pendingColors);
+    const saveBtn = document.getElementById('saveProductBtn');
+    if(saveBtn) saveBtn.click();
+  });
+}
+
+function applyWizardAiResultToForm(res, isVariation, pendingColors){
+  if(res.title) form.title = res.title;
+  if(res.description) {
+    form.description = res.description;
+    lastAIDescription = res.description;
+  }
+  if(res.sku) form.sku = res.sku;
+  if(res.style_id) form.style_id = res.style_id;
+  if(res.price) form.price = res.price;
+  if(res.return_price) form.return_price = res.return_price;
+  if(res.mrp) form.mrp = res.mrp;
+
+  (res.resolved_flags || []).forEach(rf=>{
+    const fd = fieldByKey(rf.key);
+    let val = rf.value;
+    if(fd && fd.options && fd.options.length){
+      val = closestOption(val, fd.options) || val;
+    }
+    form[rf.key] = val;
+    delete wizardFlaggedItems[rf.key];
+    formFlaggedKeys.delete(rf.key);
+  });
+
+  if(res.attributes){
+    Object.keys(res.attributes).forEach(k=>{
+      const fd = fieldByKey(k);
+      let val = res.attributes[k];
+      if(fd && fd.options && fd.options.length) val = closestOption(val, fd.options) || val;
+      if(val) form[k] = val;
+    });
+  }
+
+  if(isVariation && pendingColors && pendingColors.length){
+    mode = 'variations';
+    if(!form.group_id && fieldOptions('group_id').length) form.group_id = fieldOptions('group_id')[0];
+    variationRows = pendingColors.map(c=>{
+      const row = newVariationRow();
+      row.color = c;
+      row.material = form.material;
+      row.price = form.price;
+      row.return_price = form.return_price;
+      row.mrp = form.mrp;
+      row.weight = form.weight;
+      row.skuSuffix = c.toUpperCase().replace(/[^A-Z0-9]+/g,'_');
+      return row;
+    });
+  }
+
+  wizardFlaggedItems = {};
+  updateWizardFlaggedHeader();
+  document.getElementById('wizardPanel').style.display = 'none';
+  renderForm();
+  if(mode==='variations') renderVariationTable();
+  showToast('✨ Applied AI-generated listing and resolved flagged fields!');
+  const formGroups = document.getElementById('formGroups');
+  if(formGroups) formGroups.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+function applyWizardAnswersToForm(answers, isVariation, pendingColors){
+  Object.assign(form, answers);
+  if(isVariation && pendingColors && pendingColors.length){
+    mode = 'variations';
+    if(!form.group_id && fieldOptions('group_id').length) form.group_id = fieldOptions('group_id')[0];
+    variationRows = pendingColors.map(c=>{
+      const row = newVariationRow();
+      row.color = c;
+      row.material = form.material;
+      row.price = form.price;
+      row.return_price = form.return_price;
+      row.mrp = form.mrp;
+      row.weight = form.weight;
+      row.skuSuffix = c.toUpperCase().replace(/[^A-Z0-9]+/g,'_');
+      return row;
+    });
+  }
+  Object.keys(wizardFlaggedItems).forEach(k=> formFlaggedKeys.add(k));
+  document.getElementById('wizardPanel').style.display = 'none';
+  renderForm();
+  if(mode==='variations') renderVariationTable();
+  showToast('Applied Q&A answers to form');
+  const formGroups = document.getElementById('formGroups');
+  if(formGroups) formGroups.scrollIntoView({behavior:'smooth', block:'start'});
+}
+
+async function renderWizardCompletionView(isVariation, pendingColors){
+  wizardCurrentResolve = null;
+  const inputArea = document.getElementById('wizardInputArea');
+  const progTag = document.getElementById('wizardProgressTag');
+  if(progTag) progTag.textContent = 'Q&A Completed';
+
+  const flaggedKeys = Object.keys(wizardFlaggedItems);
+  const totalAnswered = Object.keys(form).filter(k=>form[k]!==undefined && form[k]!==null && form[k]!=='').length;
+
+  wizardLog('bot', `🎉 All questions answered! (${totalAnswered} fields recorded). ${flaggedKeys.length ? `${flaggedKeys.length} question(s) flagged for AI review.` : 'Zero items flagged.'} Click below to summarize and generate your complete Meesho listing.`);
+
+  inputArea.innerHTML = `
+    <div style="background:var(--card-alt);border:1px solid var(--pink-border);border-radius:12px;padding:16px;margin-top:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:12px;">
+        <div>
+          <strong style="color:var(--pink-dark);font-size:15px;">📋 Ready for Final AI Summarization</strong>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px;">AI will generate a high-CTR Meesho title, rich bulleted description, and resolve all flagged questions.</div>
+        </div>
+        <span class="tag ok">${totalAnswered} fields recorded</span>
+      </div>
+
+      ${flaggedKeys.length ? `
+        <div style="background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12.5px;color:#92400E;">
+          <div style="font-weight:700;display:flex;align-items:center;gap:6px;">
+            <span>🚩 ${flaggedKeys.length} Question${flaggedKeys.length===1?'':'s'} Flagged for AI Resolution:</span>
+          </div>
+          <ul style="margin:6px 0 0 16px;padding:0;line-height:1.6;">
+            ${flaggedKeys.map(k=>`<li><strong>${escapeHtml(wizardFlaggedItems[k].label || k)}:</strong> ${escapeHtml(wizardFlaggedItems[k].answer || '(needs AI determination)')}</li>`).join('')}
+          </ul>
+        </div>
+      ` : `
+        <div class="tipbox" style="margin-bottom:14px;font-size:12.5px;">
+          ✓ All questions answered cleanly with zero flagged items!
+        </div>
+      `}
+
+      <div class="row-inline" style="gap:10px;flex-wrap:wrap;">
+        <button type="button" class="btn btn-primary" id="wizardSummarizeAiBtn" style="padding:10px 20px;">
+          ✨ Summarize &amp; Generate with AI
+        </button>
+        <button type="button" class="btn btn-outline" id="wizardApplyAsIsBtn">
+          ✅ Apply to Form As-Is
+        </button>
+      </div>
+      <div id="wizardAiGenStatus" style="margin-top:10px;"></div>
+      <div id="wizardAiGenResult" style="margin-top:12px;"></div>
+    </div>
+  `;
+
+  document.getElementById('wizardApplyAsIsBtn').addEventListener('click', ()=>{
+    applyWizardAnswersToForm(form, isVariation, pendingColors);
+  });
+
+  document.getElementById('wizardSummarizeAiBtn').addEventListener('click', async ()=>{
+    const btn = document.getElementById('wizardSummarizeAiBtn');
+    const statusEl = document.getElementById('wizardAiGenStatus');
+    if(!IS_SERVED){ statusEl.innerHTML = `<span class="tag bad">${escapeHtml(describeAIError())}</span>`; return; }
+    const geminiKey = (profile.geminiKey||'').trim();
+    if(!geminiKey && !serverHasApiKey){
+      statusEl.innerHTML = `<span class="tag bad">Please add a Gemini API key in ⚙️ Settings or configure GEMINI_API_KEY.</span>`;
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = '✨ Generating…';
+    statusEl.innerHTML = `<span class="tag idle">✨ Gemini is synthesizing your Q&amp;A responses, resolving ${flaggedKeys.length} flagged item${flaggedKeys.length===1?'':'s'}, and writing your Meesho listing…</span>`;
+
+    try{
+      const aiResult = await summarizeAndGenerateListingWithAI(form, wizardFlaggedItems, isVariation, pendingColors);
+      statusEl.innerHTML = `<span class="tag ok">✓ Listing generated &amp; flagged items resolved! Review below:</span>`;
+      renderWizardAiResultCard(aiResult, isVariation, pendingColors);
+    }catch(err){
+      statusEl.innerHTML = `<span class="tag bad">✗ ${escapeHtml(describeAIError(err))}</span>`;
+      btn.disabled = false;
+      btn.textContent = '✨ Summarize & Generate with AI';
+    }
+  });
+}
+
+async function runGuidedWizard(){
+  wizardAborted = false;
+  wizardCurrentQuestionIndex = 0;
+  wizardFlaggedItems = {};
+  updateWizardFlaggedHeader();
+  document.getElementById('wizardPanel').style.display = 'block';
+  document.getElementById('wizardLog').innerHTML = '';
+  document.getElementById('wizardInputArea').innerHTML = '';
+  form = emptyForm();
+  variationRows = [];
+  mode = 'single';
+  wizardLog('bot', "Let's set up your Meesho listing! I'll guide you question by question. You can click '✨ Enhance with AI' on any step for smart suggestions, or '🚩 Flag for Review' to skip and have AI resolve it at the end.");
+
+  const q = askWizardQuestion; // shorthand
+  form.title = await q({key:'title', label:'Product Name', question:"What's the product name?", type:'text', required:true});
+  if(wizardAborted) return;
+  form.generic_name = (await q({key:'generic_name', label:'Generic Name', question:'Generic Name?', type:'chips', options:fieldOptions('generic_name'), required:true})) || form.generic_name;
+  if(wizardAborted) return;
+  form.group_id = (await q({key:'group_id', label:'Group ID', question:'Group ID? (only needed if this listing should be grouped with others)', type:'chips', options:fieldOptions('group_id'), required:false})) || '';
+  if(wizardAborted) return;
+  form.brand_name = (await q({key:'brand_name', label:'Brand Name', question:'Brand Name? (your own store/brand — optional)', type:'text', required:false, suggested: form.brand_name})) || '';
+  if(wizardAborted) return;
+
+  const listingType = await q({key:'mode', label:'Listing Type', question:'Is this a single product, or does it come in multiple color options?', type:'choice', options:['Single product','Multiple colors'], required:true});
+  if(wizardAborted) return;
+  const isVariation = listingType === 'Multiple colors';
+
+  let pendingColors = [];
+  if(isVariation){
+    const countStr = await q({key:'color_count', label:'Color Count', question:'How many colors does it come in?', type:'chips', options:['2','3','4','5'], required:true, allowCustom:true, numberType:true});
+    if(wizardAborted) return;
+    const count = Math.max(2, parseInt(countStr,10) || 2);
+    const used = new Set();
+    if(fieldByKey('color')){
+      for(let i=0;i<count;i++){
+        const c = await q({key:'color_'+(i+1), label:`Color #${i+1}`, question:`Color #${i+1} of ${count}?`, type:'chips', options:fieldOptions('color').filter(x=>!used.has(x)), required:true});
+        if(wizardAborted) return;
+        used.add(c);
+        pendingColors.push(c);
+      }
+    }
+  } else if(fieldByKey('color')){
+    form.color = await q({key:'color', label:'Color', question:'Color?', type:'chips', options:fieldOptions('color'), required:true});
+    if(wizardAborted) return;
+  }
+
+  if(fieldByKey('material')){
+    form.material = (await q({key:'material', label:'Material', question:'Material?' + (isVariation?' (applied to every color — you can override later)':''), type:'chips', options:fieldOptions('material'), required:true})) || form.material;
+    if(wizardAborted) return;
+  }
+  form.price = await q({key:'price', label:'Meesho Price', question:'Meesho Price (₹)? — your normal selling price', type:'text', numberType:true, required:true});
+  if(wizardAborted) return;
+  const suggestedReturn = form.price && !isNaN(parseFloat(form.price)) ? Math.max(0, parseFloat(form.price)-12).toString() : '';
+  form.return_price = (await q({key:'return_price', label:'Wrong/Defective Returns Price', question:'Wrong/Defective Returns Price (₹)? (optional — Meesho suggests ~₹12 below Meesho Price)', type:'text', numberType:true, required:false, suggested: suggestedReturn})) || '';
+  if(wizardAborted) return;
+  form.mrp = await q({key:'mrp', label:'MRP', question:'MRP (₹)? — must be ≥ Meesho Price', type:'text', numberType:true, required:true});
+  if(wizardAborted) return;
+  if(fieldByKey('gst')){
+    form.gst = (await q({key:'gst', label:'GST %', question:'GST %?', type:'chips', options:fieldOptions('gst'), required:true})) || form.gst;
+    if(wizardAborted) return;
+  }
+  if(fieldByKey('hsn')){
+    form.hsn = (await q({key:'hsn', label:'HSN ID', question:'HSN ID?', type:'chips', options:fieldOptions('hsn'), required:true})) || form.hsn;
+    if(wizardAborted) return;
+  }
+  if(fieldByKey('weight')){
+    form.weight = await q({key:'weight', label:'Net Weight', question:'Net Weight (grams)?', type:'text', numberType:true, required:true});
+    if(wizardAborted) return;
+  }
+  if(fieldByKey('inventory')){
+    form.inventory = (await q({key:'inventory', label:'Inventory', question:'Inventory (stock count)?', type:'chips', options:['10','20','50','100'], required:true, allowCustom:true, numberType:true})) || form.inventory;
+    if(wizardAborted) return;
+  }
+  if(fieldByKey('net_quantity')){
+    form.net_quantity = (await q({key:'net_quantity', label:'Net Quantity', question:'Net Quantity (units per pack)?', type:'chips', options:fieldOptions('net_quantity'), required:true})) || form.net_quantity;
+    if(wizardAborted) return;
+  }
+  if(fieldByKey('dimension_unit')){
+    form.dimension_unit = (await q({key:'dimension_unit', label:'Dimension Unit', question:'Dimension Unit?', type:'chips', options:fieldOptions('dimension_unit'), required:true})) || form.dimension_unit;
+    if(wizardAborted) return;
+  }
+  if(fieldByKey('height')){
+    let val = await q({key:'height', label:'Height', question:`Product Height/Thickness${form.dimension_unit?` (${form.dimension_unit})`:''}?`, type:'text', numberType:true, required:true});
+    if(wizardAborted) return;
+    if(val && isLargeNumericSelect(fieldByKey('height'))) val = closestNumericOption(val, fieldOptions('height')) || val;
+    form.height = val;
+  }
+  if(fieldByKey('length')){
+    let val = await q({key:'length', label:'Length', question:`Product Length${form.dimension_unit?` (${form.dimension_unit})`:''}?`, type:'text', numberType:true, required:true});
+    if(wizardAborted) return;
+    if(val && isLargeNumericSelect(fieldByKey('length'))) val = closestNumericOption(val, fieldOptions('length')) || val;
+    form.length = val;
+  }
+  if(fieldByKey('width')){
+    let val = await q({key:'width', label:'Width', question:`Product Width${form.dimension_unit?` (${form.dimension_unit})`:''}?`, type:'text', numberType:true, required:true});
+    if(wizardAborted) return;
+    if(val && isLargeNumericSelect(fieldByKey('width'))) val = closestNumericOption(val, fieldOptions('width')) || val;
+    form.width = val;
+  }
+  if(fieldByKey('shape')){
+    form.shape = await q({key:'shape', label:'Shape', question:'Shape?', type:'chips', options:fieldOptions('shape'), required:true});
+    if(wizardAborted) return;
+  }
+  if(fieldByKey('type')){
+    form.type = await q({key:'type', label:'Type', question:'Type?', type:'chips', options:fieldOptions('type'), required:true});
+    if(wizardAborted) return;
+  }
+
+  const ASKED_DETAIL_KEYS = new Set(['size','weight','inventory','color','material','net_quantity','dimension_unit','height','length','width','shape','type','style_id','sku','description']);
+  for(const f of FIELDS.filter(f=>f.group==='details' && !ASKED_DETAIL_KEYS.has(f.key))){
+    const bigNumeric = isLargeNumericSelect(f);
+    let val = await q({
+      key: f.key,
+      label: f.label,
+      question: `${f.label}?`,
+      type: (f.type==='select' && !bigNumeric) ? 'chips' : 'text',
+      options: (f.type==='select' && !bigNumeric) ? f.options : undefined,
+      numberType: f.type==='number' || bigNumeric,
+      required: !!f.required,
+    });
+    if(wizardAborted) return;
+    if(val && bigNumeric) val = closestNumericOption(val, f.options) || val;
+    form[f.key] = val || form[f.key] || '';
+  }
+
+  const suggestedSku = suggestSkuFromTitle(form.title);
+  form.sku = (await q({key:'sku', label:'SKU ID', question:'SKU ID? (suggested SKU is filled in — edit it or just send)', type:'text', required:true, suggested: suggestedSku})) || suggestedSku;
+  if(wizardAborted) return;
+  const suggestedStyle = suggestStyleIdFromTitle(form.title);
+  form.style_id = (await q({key:'style_id', label:'Product ID / Style ID', question:'Product ID / Style ID? (optional — suggestion filled in)', type:'text', required:false, suggested: suggestedStyle})) || '';
+  if(wizardAborted) return;
+  form.description = (await q({
+    key:'description',
+    label:'Product Description',
+    question:'Product Description? (Optional — click "✨ Write Full Description with AI", type your own notes, or click "⏩ Skip Description" to let AI write it at the end)',
+    type:'textarea',
+    required:false
+  })) || '';
+  if(wizardAborted) return;
+
+  await renderWizardCompletionView(isVariation, pendingColors);
+}
+
+document.getElementById('wizardStartBtn').addEventListener('click', runGuidedWizard);
+document.getElementById('wizardRestartBtn').addEventListener('click', runGuidedWizard);
+document.getElementById('wizardCancelBtn').addEventListener('click', ()=>{
+  wizardAborted = true;
+  if(wizardCurrentResolve) wizardCurrentResolve(null);
+  document.getElementById('wizardPanel').style.display = 'none';
+});
+
+document.addEventListener('click', (e)=>{
+  const flagBtn = e.target.closest('[data-toggle-flag]');
+  if(flagBtn){
+    e.preventDefault();
+    const key = flagBtn.dataset.toggleFlag;
+    if(formFlaggedKeys.has(key)) formFlaggedKeys.delete(key);
+    else formFlaggedKeys.add(key);
+    renderForm();
+  }
+});
+
+/* ============ Tabs ============ */
+function switchTab(name){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t.dataset.tab===name));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active', p.id==='panel-'+name));
+}
+document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click', ()=>switchTab(t.dataset.tab)));
+
+/* ============ Export: clones the real template server-side (see server.js) ============ */
+
+// Shared by the combined export, the per-row download button, and the "download all
+// individually" ZIP button — POSTs to the given endpoint and triggers a browser download.
+async function downloadWorkbookFromServer(products, filename, endpoint){
+  if(!IS_SERVED) throw new Error(describeAIError() + ' Export needs the server too, since it clones your real template file.');
+  const resp = await fetch(endpoint || '/api/export-xlsx', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({products, filename, category: ACTIVE_CATEGORY}),
+  });
+  if(!resp.ok){
+    const errData = await resp.json().catch(()=>({}));
+    throw new Error(errData.error || `Download failed (${resp.status})`);
+  }
+  const blob = await resp.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
+}
+
+document.getElementById('exportBtn').addEventListener('click', async ()=>{
+  if(!products.length) return;
+  const statusEl = document.getElementById('exportStatus');
+  statusEl.innerHTML = '<span class="tag idle">Building your Excel file…</span>';
+  try{
+    const fileStamp = getFileTimestamp();
+    const catName = (ACTIVE_CATEGORY_NAME || 'Meesho').replace(/[^A-Za-z0-9]+/g, '_');
+    const filename = `${catName}-Catalog_${fileStamp}.xlsx`;
+    await downloadWorkbookFromServer(products, filename);
+    statusEl.innerHTML = `<span class="tag ok">✓ Exported <strong>${filename}</strong> at ${getFormattedTimestamp()} — ready for Meesho upload.</span>`;
+    showToast(`Exported ${products.length} product${products.length===1?'':'s'} to ${filename}`);
+  }catch(err){
+    statusEl.innerHTML = `<div class="errbox">${escapeHtml(err.message||'Export failed')}</div>`;
+  }
+});
+
+document.getElementById('exportZipBtn').addEventListener('click', async ()=>{
+  if(!products.length) return;
+  const statusEl = document.getElementById('exportStatus');
+  statusEl.innerHTML = '<span class="tag idle">Building one Excel file per product…</span>';
+  try{
+    const fileStamp = getFileTimestamp();
+    const catName = (ACTIVE_CATEGORY_NAME || 'Meesho').replace(/[^A-Za-z0-9]+/g, '_');
+    const filename = `${catName}-Catalog-Individual_${fileStamp}.zip`;
+    await downloadWorkbookFromServer(products, filename, '/api/export-xlsx-zip');
+    statusEl.innerHTML = `<span class="tag ok">✓ Downloaded ZIP <strong>${filename}</strong> with ${products.length} file${products.length===1?'':'s'} at ${getFormattedTimestamp()}.</span>`;
+    showToast(`Downloaded ${products.length} product${products.length===1?'':'s'} as individual files`);
+  }catch(err){
+    statusEl.innerHTML = `<div class="errbox">${escapeHtml(err.message||'Download failed')}</div>`;
+  }
+});
+
+/* ============ Import Meesho's error report and let the user fix flagged rows ============ */
+let importedErrorRows = [];
+let activeErrorFixIndex = null;
+let activeErrorFixRowIndices = null;
+let activeErrorFixContext = ''; // Meesho's raw error text for whatever's currently flagged, so "Resolve with AI" knows what it's actually fixing
+
+document.getElementById('errorReportBtn').addEventListener('click', ()=>{
+  document.getElementById('errorReportFile').click();
+});
+document.getElementById('errorReportFile').addEventListener('change', async ()=>{
+  const file = document.getElementById('errorReportFile').files[0];
+  const statusEl = document.getElementById('errorReportStatus');
+  if(!file) return;
+  if(!IS_SERVED){ statusEl.innerHTML = `<span class="tag bad">${escapeHtml(describeAIError())}</span>`; document.getElementById('errorReportFile').value=''; return; }
+  statusEl.innerHTML = '<span class="tag idle">Reading file…</span>';
+  document.getElementById('errorReportRows').innerHTML = '';
+  try{
+    const base64 = await blobToBase64(file);
+    const resp = await fetch('/api/import-error-report', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({fileBase64: base64, category: ACTIVE_CATEGORY}),
+    });
+    const data = await resp.json().catch(()=>({}));
+    if(!resp.ok) throw new Error(data.error || `Import failed (${resp.status})`);
+    importedErrorRows = data.rows || [];
+    renderErrorReportRows();
+    statusEl.innerHTML = importedErrorRows.length
+      ? `<span class="tag bad">Found ${importedErrorRows.length} row${importedErrorRows.length===1?'':'s'} with issues.</span>`
+      : `<span class="tag ok">✓ No flagged rows found in this file.</span>`;
+  }catch(err){
+    statusEl.innerHTML = `<span class="tag bad">✗ ${escapeHtml(err.message||'Import failed')}</span>`;
+  }
+  document.getElementById('errorReportFile').value = '';
+});
+
+// Groups error rows by base style/SKU/group_id so products with variations can be fixed all at once
+function groupErrorRows(rows){
+  const groups = new Map();
+  rows.forEach((r, originalIdx) => {
+    const p = r.product || {};
+    const sku = (p.sku || '').trim();
+    // Determine base SKU if suffix is separated by underscore or hyphen
+    const sepMatch = sku.match(/^(.*?)[_-]([A-Za-z0-9]+)$/);
+    const baseSku = sepMatch ? sepMatch[1] : sku;
+    const key = (p.group_id && p.group_id.trim())
+      ? `group:${p.group_id.trim()}`
+      : (baseSku ? `sku:${baseSku.toLowerCase()}` : `row:${originalIdx}`);
+
+    if(!groups.has(key)){
+      groups.set(key, {
+        key,
+        baseSku: baseSku || sku || '(no SKU)',
+        title: p.title || '',
+        items: []
+      });
+    }
+    groups.get(key).items.push({ rowObj: r, originalIdx });
+  });
+  return Array.from(groups.values());
+}
+
+function renderErrorReportRows(){
+  const wrap = document.getElementById('errorReportRows');
+  if(!importedErrorRows.length){ wrap.innerHTML=''; return; }
+  const groups = groupErrorRows(importedErrorRows);
+  wrap.innerHTML = groups.map((g, gIdx)=>{
+    const count = g.items.length;
+    const isVariationGroup = count > 1;
+    // Collect distinct error messages
+    const distinctMsgs = Array.from(new Set(g.items.map(item => item.rowObj.errorMessage || item.rowObj.errorStatus || 'Flagged by Meesho'))).filter(Boolean);
+    const summaryMsg = distinctMsgs.slice(0, 2).join(' | ') + (distinctMsgs.length > 2 ? ` (+${distinctMsgs.length - 2} more)` : '');
+    const variationColors = g.items.map(item => item.rowObj.product && item.rowObj.product.color).filter(Boolean);
+    const colorHint = variationColors.length ? ` [${variationColors.join(', ')}]` : '';
+
+    return `
+      <div class="source-box" style="align-items:flex-start;${isVariationGroup?'border-left:3px solid var(--pink);':''}">
+        <div style="flex:1;min-width:0;">
+          <div class="name" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+            <strong>${escapeHtml(g.baseSku)}</strong> — ${escapeHtml((g.title||'').slice(0,55))}
+            ${isVariationGroup ? `<span class="tag" style="background:#fce7f3;color:#be185d;font-size:11px;padding:2px 8px;border-radius:10px;font-weight:600;">🎨 ${count} variations${escapeHtml(colorHint)}</span>` : ''}
+          </div>
+          <div class="note" style="margin-top:4px;color:var(--text-dim);font-size:12px;">${escapeHtml(summaryMsg)}</div>
+        </div>
+        <button type="button" class="btn btn-outline btn-sm" data-fixgroup="${gIdx}">
+          ${isVariationGroup ? `🔧 Fix all ${count} variations in once` : '🔧 Fix this'}
+        </button>
+      </div>`;
+  }).join('');
+
+  wrap.querySelectorAll('[data-fixgroup]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const gIdx = parseInt(btn.dataset.fixgroup, 10);
+      loadErrorGroupIntoForm(groups[gIdx]);
+    });
+  });
+}
+
+// Meesho's own content-compliance scanner names the exact offending words in its error text,
+// e.g. "Elegant(Warning) detected in PRODUCT NAME. an(Warning), elegant(Warning), everyday(Warning)
+// detected in PRODUCT DESCRIPTION." — parse that directly and strip just those words from the
+// field they were found in, rather than guessing from our own fixed banned-word list. This keeps
+// working no matter which words Meesho's scanner flags next, since we're reading it from Meesho.
+function stripMeeshoFlaggedKeywords(errorText, targetObj){
+  const fixedNotes = [];
+  if(!errorText) return fixedNotes;
+  const segmentRe = /((?:[A-Za-z][\w'-]*\((?:Warning|Error)\)\s*,?\s*)+)detected in\s+([A-Za-z0-9 %/]+?)(?:\.|$)/gi;
+  let segMatch;
+  while((segMatch = segmentRe.exec(errorText))){
+    const fieldLabel = segMatch[2].trim();
+    const targetField = FIELDS.find(f => f.label.toUpperCase() === fieldLabel.toUpperCase());
+    if(!targetField || !targetObj[targetField.key]) continue;
+    const words = [];
+    const wordRe = /([A-Za-z][\w'-]*)\((?:Warning|Error)\)/gi;
+    let wm;
+    while((wm = wordRe.exec(segMatch[1]))) words.push(wm[1]);
+    if(!words.length) continue;
+    let val = targetObj[targetField.key];
+    words.forEach(w=>{
+      val = val.replace(new RegExp('\\b'+w.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'\\b','gi'), '');
+    });
+    val = val.replace(/\s{2,}/g,' ').replace(/\s+([,.!?])/g,'$1').trim();
+    if(val !== targetObj[targetField.key]){
+      targetObj[targetField.key] = val;
+      fixedNotes.push(`removed Meesho-flagged word(s) from ${targetField.label}: ${Array.from(new Set(words)).join(', ')}`);
+    }
+  }
+  return fixedNotes;
+}
+
+// Known, already-understood failure patterns get fixed automatically (they're exactly what
+// got a real upload rejected earlier); anything else is left for the seller to read and judge.
+function cleanProductData(targetObj, errorText){
+  const fixedNotes = [];
+  // fieldOptions() covers both a normal select's f.options AND a disabled-but-dropdown field
+  // like Brand, which is stored as f.list with type:'text' (see applySchema) — checking options
+  // length here (not f.type) is what makes this catch Brand the same as every other dropdown.
+  FIELDS.filter(f=>fieldOptions(f.key).length>0).forEach(f=>{
+    const val = (targetObj[f.key]||'').trim();
+    if(val && !fieldOptions(f.key).includes(val)){
+      targetObj[f.key]='';
+      fixedNotes.push(`cleared invalid ${f.label}`);
+    }
+  });
+  ['main_image','other_image_1','other_image_2','other_image_3'].forEach(k=>{
+    if(isPlaceholderImage(targetObj[k])){
+      targetObj[k]='';
+      fixedNotes.push(`cleared a broken/placeholder image (${k})`);
+    }
+  });
+  if(targetObj.description){
+    const hits = findRiskyWords(targetObj.description);
+    if(hits.length){
+      let cleaned = targetObj.description;
+      hits.forEach(w=>{ cleaned = cleaned.replace(new RegExp(w,'gi'),''); });
+      targetObj.description = cleaned.replace(/\s{2,}/g,' ').trim();
+      fixedNotes.push(`removed flagged word(s) from Description: ${hits.join(', ')}`);
+    }
+  }
+  fixedNotes.push(...stripMeeshoFlaggedKeywords(errorText, targetObj));
+  return fixedNotes;
+}
+
+// When Meesho's error text names a field we can't safely auto-fix (invalid price, missing
+// GST%, bad HSN code, etc.), highlight that field in the form so the seller knows exactly
+// what to change instead of having to re-read the raw error and guess which box it means.
+function flagFieldsFromErrorText(text, fixedNotes){
+  const flaggedLabels = [];
+  if(!text) return flaggedLabels;
+  const notesText = (fixedNotes||[]).join(' | ');
+  FIELDS.forEach(f=>{
+    if(f.label.length < 4) return;
+    const re = new RegExp('\\b' + f.label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&') + '\\b', 'i');
+    if(re.test(text) && !notesText.includes(f.label)){
+      formFlaggedKeys.add(f.key);
+      flaggedLabels.push(f.label);
+    }
+  });
+  return flaggedLabels;
+}
+
+function loadErrorGroupIntoForm(group){
+  const items = group.items;
+  const isVariationBatch = items.length > 1;
+
+  if(!isVariationBatch){
+    // Single item fallback
+    const singleItem = items[0];
+    loadErrorRowIntoForm(singleItem.rowObj, singleItem.originalIdx);
+    return;
+  }
+
+  // Multi-variation product fix flow: load all variations into the form at once!
+  activeErrorFixIndex = null;
+  activeErrorFixRowIndices = items.map(item => item.rowObj.row);
+  editingIndex = null; // Saving batch will replace each variation by SKU
+  mode = 'variations';
+  formFlaggedKeys = new Set();
+
+  // Base shared fields from first row
+  const firstProd = items[0].rowObj.product || {};
+  form = Object.assign(emptyForm(), firstProd);
+  form.sku = group.baseSku; // Base SKU prefix
+
+  const distinctErrors = Array.from(new Set(items.map(item => item.rowObj.errorMessage || item.rowObj.errorStatus))).filter(Boolean);
+  const combinedErrorText = distinctErrors.join(' | ');
+  const allFixedNotes = new Set(cleanProductData(form, combinedErrorText));
+
+  // Build variation rows
+  variationRows = items.map(item => {
+    const p = item.rowObj.product || {};
+    cleanProductData(p, item.rowObj.errorMessage || item.rowObj.errorStatus);
+    const sku = (p.sku || '').trim();
+    let skuSuffix = '';
+    if(sku.startsWith(form.sku)){
+      skuSuffix = sku.slice(form.sku.length).replace(/^[_-]+/, '');
+    } else {
+      const match = sku.match(/[_-]([A-Za-z0-9]+)$/);
+      skuSuffix = match ? match[1] : (p.color || 'VAR');
+    }
+    return {
+      color: p.color || '',
+      size: p.size || '',
+      material: p.material || form.material || '',
+      style_id: p.style_id || form.style_id || '',
+      skuSuffix: skuSuffix || p.color || '',
+      price: p.price || form.price || '',
+      return_price: p.return_price || form.return_price || '',
+      mrp: p.mrp || form.mrp || '',
+      weight: p.weight || form.weight || '',
+      inventory: p.inventory || form.inventory || '50',
+      main_image: p.main_image || '',
+      other_image_1: p.other_image_1 || '',
+      other_image_2: p.other_image_2 || '',
+      other_image_3: p.other_image_3 || ''
+    };
+  });
+
+  // Ensure default main image is populated if row 0 has one
+  if(!form.main_image && variationRows[0] && variationRows[0].main_image){
+    form.main_image = variationRows[0].main_image;
+  }
+
+  const fixedNotesArr = Array.from(allFixedNotes);
+  const flaggedLabels = flagFieldsFromErrorText(combinedErrorText, fixedNotesArr);
+  activeErrorFixContext = combinedErrorText;
+
+  document.getElementById('formErrors').innerHTML = `<div class="errbox">
+      ⚡ <strong>Loaded all ${items.length} variations for "${escapeHtml(group.baseSku)}":</strong><br>
+      Meesho said: ${escapeHtml(distinctErrors.join(' | ') || 'Flagged')}
+    </div>
+    ${fixedNotesArr.length ? `<div class="tipbox">✅ <strong>Auto-fixed, ready to save:</strong> ${escapeHtml(fixedNotesArr.join('; '))}</div>` : ''}
+    ${flaggedLabels.length
+      ? `<div class="warnbox">🚩 <strong>Still needs your review:</strong> ${escapeHtml(flaggedLabels.join(', '))} — highlighted below. Edit it yourself, or use "✨ Summarize &amp; Resolve with AI" further down.</div>`
+      : (fixedNotesArr.length ? '' : `<div class="warnbox">⚠️ Nothing could be auto-fixed or matched to a specific field — read Meesho's message above and correct it manually.</div>`)}
+    <div class="sub" style="margin-top:8px;">💡 <strong>Fix in once:</strong> Update shared fields (title, description, brand, material) and tweak variation rows below (including per-row Style ID / SKU suffix / prices). Clicking "Add/Save Variations" will replace all variations in your catalog list and resolve all ${items.length} error rows at once!</div>`;
+
+  renderForm();
+  switchTab('form');
+  showToast(`Loaded ${items.length} variations — fix shared details & save once!`);
+}
+
+function loadErrorRowIntoForm(errRow, errorIndex){
+  activeErrorFixIndex = (typeof errorIndex === 'number') ? errorIndex : null;
+  activeErrorFixRowIndices = (errRow && typeof errRow.row === 'number') ? [errRow.row] : null;
+  mode = 'single';
+  variationRows = [];
+  form = Object.assign(emptyForm(), errRow.product);
+  formFlaggedKeys = new Set();
+
+  // Match existing product by SKU so saving replaces old catalog file/record instead of stacking duplicates!
+  const existingIdx = products.findIndex(p => p.sku && errRow.product && errRow.product.sku && p.sku.trim().toLowerCase() === errRow.product.sku.trim().toLowerCase());
+  editingIndex = existingIdx !== -1 ? existingIdx : null;
+
+  const errorText = errRow.errorMessage || errRow.errorStatus || '';
+  const fixedNotes = cleanProductData(form, errorText);
+  const flaggedLabels = flagFieldsFromErrorText(errorText, fixedNotes);
+  activeErrorFixContext = errorText;
+
+  const replaceNotice = editingIndex !== null
+    ? `<div class="sub" style="margin-top:8px;">💡 <strong>Note:</strong> Re-saving will replace the old catalog entry "${escapeHtml(products[editingIndex].sku)}" with a fresh timestamp instead of stacking duplicates.</div>`
+    : '';
+  const statusBox = fixedNotes.length
+    ? `<div class="tipbox">✅ <strong>Auto-fixed, ready to save:</strong> ${escapeHtml(fixedNotes.join('; '))}</div>`
+    : '';
+  const warnBox = flaggedLabels.length
+    ? `<div class="warnbox">🚩 <strong>Still needs your review:</strong> ${escapeHtml(flaggedLabels.join(', '))} — highlighted below. Edit it yourself, or use "✨ Summarize &amp; Resolve with AI" further down.</div>`
+    : (fixedNotes.length ? '' : `<div class="warnbox">⚠️ Nothing could be auto-fixed or matched to a specific field — read Meesho's message above and correct it manually.</div>`);
+  document.getElementById('formErrors').innerHTML = `<div class="errbox">⚠️ Meesho said: ${escapeHtml(errorText || 'unknown error')}</div>${statusBox}${warnBox}${replaceNotice}`;
+  renderForm();
+  switchTab('form');
+  showToast(editingIndex !== null ? 'Loaded error item — fix the highlighted field(s), then re-save' : 'Loaded error item — fix the highlighted field(s), then save');
+}
+
+/* ============ Category switch UI ============ */
+function updateCategoryLabel(){
+  document.getElementById('categoryNameLabel').textContent = ACTIVE_CATEGORY_NAME;
+}
+
+async function renderCategoryList(){
+  const wrap = document.getElementById('categoryList');
+  wrap.innerHTML = '<span class="tag idle">Loading categories…</span>';
+  try{
+    const categories = await listServerCategories();
+    wrap.innerHTML = categories.map(c=>`
+      <button type="button" class="chip-btn" data-switch-category="${escapeHtml(c.slug)}" style="${c.slug===ACTIVE_CATEGORY?'background:var(--pink);color:#fff;':''}">${escapeHtml(c.name)}${c.slug===ACTIVE_CATEGORY?' ✓':''}</button>
+    `).join(' ');
+    wrap.querySelectorAll('[data-switch-category]').forEach(btn=>{
+      btn.addEventListener('click', ()=> switchCategory(btn.dataset.switchCategory));
+    });
+  }catch(e){
+    wrap.innerHTML = `<span class="tag bad">${escapeHtml(e.message||'Could not load categories')}</span>`;
+  }
+}
+
+async function switchCategory(slug){
+  if(slug===ACTIVE_CATEGORY){ document.getElementById('categoryPanel').style.display='none'; return; }
+  if(products.length && !confirm(`Switch to a different category? Your current "${ACTIVE_CATEGORY_NAME}" catalog list (${products.length} product${products.length===1?'':'s'}) is saved and will still be here if you switch back.`)) return;
+  const statusEl = document.getElementById('categoryStatus');
+  statusEl.innerHTML = '<span class="tag idle">Loading category…</span>';
+  try{
+    const schema = await fetchCategorySchema(slug);
+    ACTIVE_CATEGORY = slug;
+    localStorage.setItem('meesho_active_category', slug);
+    applySchema(schema);
+    editingIndex = null; mode = 'single'; variationRows = [];
+    clearProductAIContext();
+    loadState();
+    form = emptyForm();
+    updateCategoryLabel();
+    updateQuickFillPlaceholder();
+    renderSettings();
+    renderForm();
+    renderList();
+    document.getElementById('categoryPanel').style.display = 'none';
+    statusEl.innerHTML = '';
+    showToast(`Switched to ${ACTIVE_CATEGORY_NAME}`);
+  }catch(e){
+    statusEl.innerHTML = `<span class="tag bad">${escapeHtml(e.message||'Could not switch category')}</span>`;
+  }
+}
+
+document.getElementById('changeCategoryBtn').addEventListener('click', ()=>{
+  const panel = document.getElementById('categoryPanel');
+  const opening = panel.style.display === 'none';
+  panel.style.display = opening ? 'block' : 'none';
+  if(opening) renderCategoryList();
+});
+
+let pendingCategoryFile = null;
+document.getElementById('categoryFileBtn').addEventListener('click', ()=> document.getElementById('categoryFile').click());
+document.getElementById('categoryFile').addEventListener('change', ()=>{
+  pendingCategoryFile = document.getElementById('categoryFile').files[0] || null;
+  const nameInput = document.getElementById('categoryNameInput');
+  if(pendingCategoryFile && !nameInput.value.trim()){
+    nameInput.value = pendingCategoryFile.name.replace(/\.xlsx$/i,'').replace(/[_-]?fill this/i,'').trim();
+  }
+  document.getElementById('categoryUploadBtn').disabled = !pendingCategoryFile;
+});
+document.getElementById('categoryUploadBtn').addEventListener('click', async ()=>{
+  const statusEl = document.getElementById('categoryStatus');
+  if(!IS_SERVED){ statusEl.innerHTML = `<span class="tag bad">${escapeHtml(describeAIError())}</span>`; return; }
+  if(!pendingCategoryFile){ statusEl.innerHTML = '<span class="tag bad">Choose a template .xlsx first.</span>'; return; }
+  const name = document.getElementById('categoryNameInput').value.trim();
+  if(!name){ statusEl.innerHTML = '<span class="tag bad">Give this category a name.</span>'; return; }
+  if(products.length && !confirm(`Switch to "${name}"? Your current "${ACTIVE_CATEGORY_NAME}" catalog list (${products.length} product${products.length===1?'':'s'}) is saved and will still be here if you switch back.`)) return;
+  statusEl.innerHTML = '<span class="tag idle">Parsing template…</span>';
+  try{
+    const fileBase64 = await blobToBase64(pendingCategoryFile);
+    const resp = await fetch('/api/categories', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({fileBase64, name}),
+    });
+    const data = await resp.json().catch(()=>({}));
+    if(!resp.ok) throw new Error(data.error || `Could not parse this template (${resp.status})`);
+    ACTIVE_CATEGORY = data.slug;
+    localStorage.setItem('meesho_active_category', data.slug);
+    applySchema(data.schema);
+    editingIndex = null; mode = 'single'; variationRows = [];
+    clearProductAIContext();
+    loadState();
+    form = emptyForm();
+    updateCategoryLabel();
+    updateQuickFillPlaceholder();
+    renderSettings();
+    renderForm();
+    renderList();
+    document.getElementById('categoryPanel').style.display = 'none';
+    document.getElementById('categoryFile').value = '';
+    document.getElementById('categoryNameInput').value = '';
+    pendingCategoryFile = null;
+    document.getElementById('categoryUploadBtn').disabled = true;
+    statusEl.innerHTML = '';
+    showToast(`"${ACTIVE_CATEGORY_NAME}" is ready — ${FIELDS.length} fields detected`);
+  }catch(err){
+    statusEl.innerHTML = `<div class="errbox">${escapeHtml(err.message||'Could not parse this template')}</div>`;
+  }
+});
+
+/* ============ Init ============ */
+document.getElementById('quickFillBtn').addEventListener('click', enhanceFreeTextWithAI);
+document.getElementById('voiceBtn').addEventListener('click', toggleVoiceInput);
+(async function initApp(){
+  await checkServerConfig();
+  await bootstrapCategory();
+  updateCategoryLabel();
+  updateQuickFillPlaceholder();
+  loadProfile();
+  loadState();
+  form = emptyForm();
+  renderSettings();
+  renderForm();
+  renderList();
+})();

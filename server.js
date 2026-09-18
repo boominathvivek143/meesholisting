@@ -21,6 +21,10 @@ const { GoogleGenAI } = require('@google/genai');
 
 const PORT = 3000;
 const INDEX_HTML_PATH = path.join(__dirname, 'index.html');
+const STATIC_ASSETS = {
+  '/styles.css': { filePath: path.join(__dirname, 'styles.css'), contentType: 'text/css; charset=utf-8' },
+  '/app.js': { filePath: path.join(__dirname, 'app.js'), contentType: 'text/javascript; charset=utf-8' },
+};
 const LEGACY_TEMPLATE_XLSX_PATH = path.join(__dirname, 'template.xlsx'); // the original bundled Keychains template
 const CATEGORIES_DIR = path.join(__dirname, 'categories');
 
@@ -358,6 +362,20 @@ const server = http.createServer(async (req, res) => {
         return;
       }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(data);
+    });
+    return;
+  }
+
+  const staticAsset = STATIC_ASSETS[url.pathname];
+  if (req.method === 'GET' && staticAsset) {
+    fs.readFile(staticAsset.filePath, (err, data) => {
+      if (err) {
+        res.writeHead(500, { 'Content-Type': 'text/plain' });
+        res.end('Could not read ' + url.pathname + ': ' + err.message);
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': staticAsset.contentType });
       res.end(data);
     });
     return;
