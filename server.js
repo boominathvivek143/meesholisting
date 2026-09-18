@@ -17,12 +17,12 @@ const fs = require('fs');
 const path = require('path');
 const ExcelJS = require('exceljs');
 const JSZip = require('jszip');
+const { GoogleGenAI } = require('@google/genai');
 
 const PORT = 3000;
 const INDEX_HTML_PATH = path.join(__dirname, 'index.html');
 const LEGACY_TEMPLATE_XLSX_PATH = path.join(__dirname, 'template.xlsx'); // the original bundled Keychains template
 const CATEGORIES_DIR = path.join(__dirname, 'categories');
-const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/interactions';
 
 /* ============================================================================
  * Generic Meesho template parsing
@@ -370,29 +370,126 @@ const server = http.createServer(async (req, res) => {
 
   // Runtime config endpoint
   if (req.method === 'GET' && url.pathname === '/api/config') {
-    return sendJson(res, 200, { hasServerApiKey: Boolean(process.env.GEMINI_API_KEY) });
+    const key = (process.env.GEMINI_API_KEY || '').trim();
+    // In sandbox environments, dummy or expired tokens starting with AQ.Ab8RN6I are non-functional
+    const isFunctionalEnvKey = Boolean(key && !key.startsWith('AQ.Ab8RN6I'));
+    return sendJson(res, 200, { hasServerApiKey: isFunctionalEnvKey });
   }
 
-  // Proxies a Gemini "interactions" request. The browser never talks to
-  // Google directly, which is what avoids the CORS failure.
+  // Proxies a Gemini request using the official @google/genai SDK.
   if (req.method === 'POST' && url.pathname === '/api/gemini') {
     try {
       const body = await readBody(req, 25 * 1024 * 1024);
       const { apiKey, model, input } = JSON.parse(body || '{}');
-      const keyToUse = (apiKey && apiKey.trim()) || process.env.GEMINI_API_KEY;
-      if (!keyToUse || !model || !input) {
-        return sendJson(res, 400, { error: 'Missing Gemini API Key, model, or input. Please configure GEMINI_API_KEY or provide a key in Settings.' });
+      const providedKey = (apiKey && apiKey.trim()) || '';
+      const envKey = (process.env.GEMINI_API_KEY || '').trim();
+      const keyToUse = providedKey || (!envKey.startsWith('AQ.Ab8RN6I') ? envKey : '');
+
+      if (!keyToUse) {
+        return sendJson(res, 401, {
+          error: 'Gemini API key is required. Please provide a Gemini API Key in ⚙️ Settings (get a free key at https://aistudio.google.com/app/apikey).',
+          isAuthError: true,
+          code: 'UNAUTHENTICATED'
+        });
       }
-      const upstream = await fetch(GEMINI_ENDPOINT, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': keyToUse },
-        body: JSON.stringify({ model, input }),
+
+      // Map models to valid current Gemini models
+      let targetModel = (model || 'gemini-3.8-flash').trim();
+      if (targetModel.includes('3.5-flash') || targetModel.includes('1.5') || targetModel.includes('2.0')) {
+        targetModel = 'gemini-3.8-flash';
+      }
+      if (targetModel.includes('image')) {
+        targetModel = 'gemini-3.1-flash-image';
+      }
+
+      // Convert input payload to @google/genai format
+      const parts = [];
+      if (Array.isArray(input)) {
+        for (const item of input) {
+          if (item.type === 'text' && item.text) {
+            parts.push({ text: item.text });
+          } else if (item.type === 'image' && item.data) {
+            parts.push({
+              inlineData: {
+                mimeType: item.mime_type || item.mimeType || 'image/png',
+                data: item.data,
+              },
+            });
+          }
+        }
+      } else if (typeof input === 'string') {
+        parts.push({ text: input });
+      }
+
+      if (!parts.length) {
+        return sendJson(res, 400, { error: 'No prompt or content provided to Gemini.' });
+      }
+
+      const ai = new GoogleGenAI({
+        apiKey: keyToUse,
+        httpOptions: {
+          headers: {
+            'User-Agent': 'aistudio-build',
+          },
+        },
       });
-      const text = await upstream.text();
-      res.writeHead(upstream.status, { 'Content-Type': 'application/json; charset=utf-8' });
-      res.end(text);
+
+      const response = await ai.models.generateContent({
+        model: targetModel,
+        contents: parts.length === 1 && parts[0].text ? parts[0].text : { parts },
+      });
+
+      const responseText = response.text || '';
+
+      // Check for generated image if any
+      let generatedImage = null;
+      if (response.candidates && response.candidates[0] && response.candidates[0].content && response.candidates[0].content.parts) {
+        for (const part of response.candidates[0].content.parts) {
+          if (part.inlineData && part.inlineData.data) {
+            generatedImage = {
+              data: part.inlineData.data,
+              mime_type: part.inlineData.mimeType || 'image/png',
+            };
+            break;
+          }
+        }
+      }
+
+      const contentParts = [];
+      if (responseText) {
+        contentParts.push({ type: 'text', text: responseText });
+      }
+      if (generatedImage) {
+        contentParts.push({ type: 'image', data: generatedImage.data, mime_type: generatedImage.mime_type });
+      }
+
+      return sendJson(res, 200, {
+        text: responseText,
+        steps: [
+          {
+            content: contentParts,
+          },
+        ],
+      });
     } catch (err) {
-      sendJson(res, 500, { error: String((err && err.message) || err) });
+      let errMsg = String((err && err.message) || err);
+      const isAuthProblem = (
+        errMsg.includes('401') ||
+        errMsg.includes('UNAUTHENTICATED') ||
+        errMsg.includes('ACCESS_TOKEN_TYPE_UNSUPPORTED') ||
+        errMsg.includes('API_KEY_SERVICE_BLOCKED') ||
+        errMsg.includes('invalid authentication credentials')
+      );
+      if (isAuthProblem) {
+        console.warn('[Gemini Notice] Authentication required or key invalid:', errMsg.slice(0, 100));
+        return sendJson(res, 401, {
+          error: 'Gemini API authentication error: The provided Gemini API Key is invalid or not authorized. Please enter a valid Gemini API Key in ⚙️ Settings (get a free key at https://aistudio.google.com/app/apikey).',
+          isAuthError: true,
+          code: 'UNAUTHENTICATED'
+        });
+      }
+      console.warn('[Gemini Notice] Request error:', errMsg.slice(0, 150));
+      return sendJson(res, 500, { error: errMsg });
     }
     return;
   }

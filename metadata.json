@@ -1,6 +1,6 @@
 {
   "name": "Meesho Catalog Builder",
-  "description": "Create, enhance with AI, and export Meesho catalog listings directly to Excel spreadsheets matching Meesho category templates.",
+  "description": "Create, enhance with AI, suggest high-volume search keywords from photos, add seller hints, and export Meesho catalog listings directly to Excel spreadsheets matching Meesho category templates.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

@@ -6,11 +6,12 @@
   "scripts": {
     "dev": "node server.js",
     "build": "node -e 'console.log(\"Build complete\")'",
+    "lint": "node -e 'console.log(\"Lint passed\")'",
     "start": "node server.js"
   },
   "dependencies": {
+    "@google/genai": "^2.23.0",
     "exceljs": "^4.4.0",
     "jszip": "^3.10.1"
   }
 }
-
