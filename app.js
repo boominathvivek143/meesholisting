@@ -78,9 +78,10 @@ async function bootstrapCategory(){
 // own Supplier Panel under Settings > Legal and Policies > Prohibited Items). This is a
 // best-effort local list covering those stated examples plus common cross-marketplace risk
 // categories (competitor names, restricted-substance references, weapons/violence, and
-// unverifiable promotional/medical claims — "essentials" itself got flagged as a promotional
-// puffery word on a real upload). It reduces obvious risk but is NOT authoritative — always
-// check your own Supplier Panel's Prohibited Items list before a real bulk upload.
+// unverifiable promotional/medical claims — several of these (essentials, elegant, rugged,
+// everyday, essential, care) got flagged as subjective/puffery words on real uploads. It reduces
+// obvious risk but is NOT authoritative — always check your own Supplier Panel's Prohibited
+// Items list before a real bulk upload.
 const DESCRIPTION_RISK_WORDS = [
   'smoking','cigarette','cigar','tobacco','vape','vaping','nicotine','hookah',
   'gun','pistol','rifle','ammunition','weapon','knife','blade','sword',
@@ -88,7 +89,10 @@ const DESCRIPTION_RISK_WORDS = [
   'amazon','flipkart','myntra','ajio','snapdeal','nykaa','tatacliq','jiomart','shein',
   'cure','cures','curing','treatment','medicine','disease','fda approved','clinically proven',
   'guaranteed','guarantee','100% genuine','best in the world','no.1','number one','no 1',
-  'essentials','must-have','must have','world class','world-class',
+  'essentials','essential','must-have','must have','world class','world-class',
+  'elegant','rugged','everyday','premium','stylish','sophisticated','versatile','exclusive',
+  'ultimate','superior','finest','ideal','perfect','amazing','top-quality','high-quality',
+  'genuine','class-apart',
 ];
 function findRiskyWords(text){
   const t = (text||'').toLowerCase();
@@ -340,6 +344,28 @@ function renderSettings(){
   document.getElementById('pf_geminiKey').value = profile.geminiKey || '';
   document.getElementById('pf_geminiTextModel').value = profile.geminiTextModel || DEFAULT_GEMINI_TEXT_MODEL;
   document.getElementById('pf_geminiImageModel').value = profile.geminiImageModel || DEFAULT_GEMINI_IMAGE_MODEL;
+  wireSettingsAutoSave();
+}
+
+// Persists each Settings field as soon as you leave it — a "Test Key" success (or any other AI
+// feature) reads from `profile`, not from what's currently typed in the box, so relying on the
+// explicit Save button alone meant a tested-but-unsaved key would pass the test yet still fail
+// everywhere else. Auto-save removes that gap; the Save button remains as an explicit checkpoint.
+function wireSettingsAutoSave(){
+  const ids = PROFILE_FIELDS.map(pf=>'pf_'+pf.key).concat(['pf_geminiKey','pf_geminiTextModel','pf_geminiImageModel']);
+  ids.forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el || el.dataset.autosaveWired) return;
+    el.dataset.autosaveWired = '1';
+    el.addEventListener('change', ()=>{
+      const key = id.slice(3);
+      const val = el.value.trim();
+      if(key === 'geminiTextModel') profile.geminiTextModel = val || DEFAULT_GEMINI_TEXT_MODEL;
+      else if(key === 'geminiImageModel') profile.geminiImageModel = val || DEFAULT_GEMINI_IMAGE_MODEL;
+      else profile[key] = val;
+      saveProfile();
+    });
+  });
 }
 
 document.getElementById('saveSettingsBtn').addEventListener('click', ()=>{
@@ -349,6 +375,47 @@ document.getElementById('saveSettingsBtn').addEventListener('click', ()=>{
   profile.geminiImageModel = document.getElementById('pf_geminiImageModel').value.trim() || DEFAULT_GEMINI_IMAGE_MODEL;
   saveProfile();
   showToast('Settings saved');
+});
+
+document.getElementById('testGeminiKeyBtn').addEventListener('click', async ()=>{
+  const btn = document.getElementById('testGeminiKeyBtn');
+  const statusEl = document.getElementById('testGeminiKeyStatus');
+  if(!IS_SERVED){ if(statusEl) statusEl.innerHTML = `<span class="tag bad">✗ ${escapeHtml(describeAIError())}</span>`; return; }
+  // Tests whatever's currently typed — no need to Save first, so a fresh key can be checked
+  // before it overwrites a working one.
+  const key = document.getElementById('pf_geminiKey').value.trim();
+  const model = document.getElementById('pf_geminiTextModel').value.trim() || DEFAULT_GEMINI_TEXT_MODEL;
+  if(!key && !serverHasApiKey){
+    if(statusEl) statusEl.innerHTML = '<span class="tag bad">✗ Paste a key above first (or set GEMINI_API_KEY on the server)</span>';
+    return;
+  }
+  btn.disabled = true; btn.textContent = '🔌 Testing…';
+  if(statusEl) statusEl.innerHTML = '<span class="tag idle">Pinging Gemini…</span>';
+  try{
+    const reply = await callGeminiTextOnly(key, model, 'Reply with exactly one word: OK');
+    // A test that passes but isn't saved is exactly how "Test Key says OK, everything else still
+    // fails" happens — save it now so a successful test always means it's actually usable.
+    if(key){ profile.geminiKey = key; profile.geminiTextModel = model; saveProfile(); }
+    if(statusEl) statusEl.innerHTML = `<span class="tag ok">✓ Key works and is saved — Gemini replied: "${escapeHtml((reply||'').trim().slice(0,60))}"</span>`;
+  }catch(err){
+    // Shows the actual reason from Gemini/the server, not the generic re-worded message shown
+    // elsewhere — the whole point here is to see WHY (invalid key, wrong model, quota, etc), not
+    // just that it failed. The SDK's error message is often a raw JSON blob; pull out the plain
+    // message + reason when it's shaped that way, otherwise fall back to showing it as-is.
+    const raw = (err && err.message) || 'Unknown error';
+    let readable = raw;
+    try{
+      const parsed = JSON.parse(raw);
+      const inner = parsed.error || parsed;
+      if(inner && inner.message){
+        const reason = inner.details && inner.details.find(d=>d.reason)?.reason;
+        readable = inner.message + (reason ? ` (${reason})` : '');
+      }
+    }catch(e){}
+    if(statusEl) statusEl.innerHTML = `<span class="tag bad">✗ ${escapeHtml(readable)}</span>`;
+  }finally{
+    btn.disabled = false; btn.textContent = '🔌 Test Key';
+  }
 });
 
 /* ============ State ============ */
@@ -983,13 +1050,13 @@ ${hintsToUse.map(h=>`• ${h}`).join('\n')}`;
 
 Target around 900-1400 characters total (Meesho allows up to 10000, but keep it punchy, engaging, and professional).
 Structure it cleanly:
-1. 2-3 engaging opening sentences introducing the product, its utility (e.g. for car, bike, office, home keys), material finish, and elegance, naturally incorporating the main search terms.
+1. 2-3 engaging opening sentences introducing the product, its utility (e.g. for car, bike, office, home keys), and material finish, naturally incorporating the main search terms.
 2. "Key Features & Highlights:" section with 5-8 bullet points (one per line, starting with "- ") detailing material quality, build durability, ergonomic design, use cases, gifting suitability (birthday, anniversary, friends, family), and packaging.
-3. "Care & Specifications:" 2-4 bullet points with maintenance tips, package contents, and dimensions.
+3. "Maintenance & Specifications:" 2-4 bullet points with upkeep tips, package contents, and dimensions.
 
 DO NOT invent unstated specific metrics or fake guarantees.
 DO NOT prepend "Title:", "Product Name:", or repeat the title as an opening label/heading in the description — dive straight into the compelling opening sentence.
-NO promotional superlatives (e.g. "best", "must-have", "guaranteed", "no.1", "100% perfect"), no medical or fake warranty claims, no mentions of external marketplaces (Amazon, Flipkart, etc.), no restricted-topic words.
+Describe the product using only objective, factual specifications (material, size, use case, what's included) — Meesho's own compliance scanner flags subjective quality/marketing adjectives even when they sound harmless, so DO NOT use ANY of: best, must-have, must have, guaranteed, no.1, number one, 100% perfect, elegant, rugged, everyday, essential, essentials, premium, stylish, sophisticated, versatile, exclusive, ultimate, superior, world-class, world class, finest, ideal, perfect, amazing, top, top-quality, high-quality, genuine, class-apart, or any other subjective adjective claiming the product's quality rather than stating a fact about it. Also avoid the words "care" or "essentials" anywhere, including as section wording. No medical or fake warranty claims, no mentions of external marketplaces (Amazon, Flipkart, etc.), no restricted-topic words.
 Respond with ONLY the description text — no quotes, no markdown headers (###), no code fences.`;
 
   const raw = imageInfo
@@ -1037,8 +1104,14 @@ async function enhanceDescriptionWithAI(){
   }catch(err){
     showToast(describeAIError(err));
   }finally{
-    if(btn){ btn.disabled = false; btn.textContent = '✨ Generate with AI'; }
-    if(genSeoBtn){ genSeoBtn.disabled = false; genSeoBtn.textContent = '✨ Generate Keyword-Rich Description'; }
+    // Re-query rather than reuse the `btn`/`genSeoBtn` captured above: on success, renderForm()
+    // just replaced the whole #formGroups DOM (including this button) with a fresh node, so the
+    // old reference is detached — resetting it had no visible effect and left the on-screen
+    // button showing "Writing…" forever even though generation had already finished.
+    const freshBtn = document.getElementById('descEnhanceBtn');
+    const freshGenBtn = document.getElementById('generateSeoDescBtn');
+    if(freshBtn){ freshBtn.disabled = false; freshBtn.textContent = '✨ Generate with AI'; }
+    if(freshGenBtn){ freshGenBtn.disabled = false; freshGenBtn.textContent = '📝 Description with AI'; }
   }
 }
 
